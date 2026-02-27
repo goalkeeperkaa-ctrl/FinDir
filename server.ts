@@ -67,7 +67,7 @@ app.get("/api/transactions", async (req, res) => {
 });
 
 // Get all categories
-app.get("/api/categories", async (req, res) => {
+app.get("/api/categories", withDatabase(async (req, res) => {
   try {
     const result = await query('SELECT * FROM categories ORDER BY name');
     res.json(result.rows);
@@ -75,7 +75,7 @@ app.get("/api/categories", async (req, res) => {
     console.error("Error fetching categories:", error);
     res.status(500).json({ error: "Failed to fetch categories" });
   }
-});
+}));
 
 // Add a transaction
 app.post("/api/transactions", async (req, res) => {
@@ -399,27 +399,35 @@ async function ensureDbInitialized() {
   return dbInitPromise;
 }
 
-// Initialize database on first request
-app.use(async (req, res, next) => {
-  try {
-    await ensureDbInitialized();
-    next();
-  } catch (error) {
-    console.error("Database initialization error:", error);
-    res.status(500).json({ error: "Database not available", details: String(error) });
-  }
-});
+// Helper function to handle endpoints that need database
+async function withDatabase(handler: (req: any, res: any) => Promise<void>) {
+  return async (req: any, res: any) => {
+    try {
+      await ensureDbInitialized();
+      await handler(req, res);
+    } catch (error) {
+      console.error("Database error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Database not available", details: String(error) });
+      }
+    }
+  };
+}
 
 // Start server (for local development only)
 async function start() {
   try {
-    // Vite Middleware (only in non-production)
-    if (process.env.NODE_ENV !== "production") {
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: "spa",
-      });
-      app.use(vite.middlewares);
+    // Vite Middleware (only in local development, not on Vercel)
+    if (!process.env.VERCEL && process.env.NODE_ENV !== "production") {
+      try {
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: "spa",
+        });
+        app.use(vite.middlewares);
+      } catch (viteError) {
+        console.warn("Vite initialization failed, skipping:", viteError);
+      }
     }
 
     // Only start listening if not on Vercel (Vercel handles the HTTP server)
@@ -446,7 +454,7 @@ async function start() {
   }
 }
 
-// Start async initialization
+// Start async initialization (don't block module loading)
 start().catch(error => {
   console.error("Unhandled error in start():", error);
   if (!process.env.VERCEL) {
