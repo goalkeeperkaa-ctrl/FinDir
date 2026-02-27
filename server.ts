@@ -5,7 +5,7 @@ import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000');
 
 app.use(express.json());
 
@@ -149,6 +149,127 @@ app.post("/api/categorize", async (req, res) => {
   } catch (error) {
     console.error("AI Categorization Error:", error);
     res.status(500).json({ error: "Failed to categorize transaction" });
+  }
+});
+
+// P&L Report Endpoint
+app.get("/api/reports/p-l", (req, res) => {
+  try {
+    const stmt = db.prepare(`
+      SELECT
+        c.name as category,
+        c.type,
+        SUM(t.amount) as total_amount,
+        COUNT(t.id) as transaction_count
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
+      GROUP BY c.id, c.name, c.type
+      ORDER BY c.type DESC, total_amount DESC
+    `);
+    const data = stmt.all() as any[];
+
+    const income = data.filter(row => row.type === 'income');
+    const expenses = data.filter(row => row.type === 'expense');
+
+    const totalIncome = income.reduce((sum, row) => sum + (row.total_amount || 0), 0);
+    const totalExpenses = expenses.reduce((sum, row) => sum + (row.total_amount || 0), 0);
+
+    res.json({
+      income,
+      expenses,
+      totalIncome,
+      totalExpenses,
+      netProfit: totalIncome - totalExpenses,
+      profitMargin: totalIncome > 0 ? ((totalIncome - totalExpenses) / totalIncome * 100).toFixed(2) : 0
+    });
+  } catch (error) {
+    console.error("P&L Report Error:", error);
+    res.status(500).json({ error: "Failed to generate P&L report" });
+  }
+});
+
+// Bulk Import Transactions Endpoint
+app.post("/api/import", (req, res) => {
+  try {
+    const { transactions } = req.body;
+
+    if (!Array.isArray(transactions) || transactions.length === 0) {
+      return res.status(400).json({ error: "Invalid or empty transactions array" });
+    }
+
+    const insertTx = db.prepare('INSERT INTO transactions (id, date, amount, description, category_id, status) VALUES (?, ?, ?, ?, ?, ?)');
+    const getCategory = db.prepare('SELECT id FROM categories WHERE LOWER(name) LIKE LOWER(?)');
+
+    let imported = 0;
+    let errors: string[] = [];
+
+    transactions.forEach((tx: any, index: number) => {
+      try {
+        const date = tx.date || new Date().toISOString().split('T')[0];
+        const amount = parseFloat(tx.amount);
+        const description = tx.description || 'Импортированная транзакция';
+        let category_id = tx.category_id;
+
+        if (!date || isNaN(amount)) {
+          errors.push(`Строка ${index + 1}: Недостаточные данные (дата/сумма)`);
+          return;
+        }
+
+        // If category not provided, try to find by name
+        if (!category_id && tx.category_name) {
+          const cat = getCategory.get(`%${tx.category_name}%`) as { id: string } | undefined;
+          category_id = cat?.id;
+        }
+
+        const id = uuidv4();
+        insertTx.run(id, date, amount, description, category_id || null, 'cleared');
+        imported++;
+      } catch (e) {
+        errors.push(`Строка ${index + 1}: ${String(e)}`);
+      }
+    });
+
+    res.json({
+      imported,
+      errors: errors.length > 0 ? errors : undefined,
+      total: transactions.length
+    });
+  } catch (error) {
+    console.error("Import Error:", error);
+    res.status(500).json({ error: "Failed to import transactions" });
+  }
+});
+
+// Cash Flow Report Endpoint
+app.get("/api/reports/cash-flow", (req, res) => {
+  try {
+    const stmt = db.prepare(`
+      SELECT
+        strftime('%Y-%m', t.date) as month,
+        SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END) as inflows,
+        SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END) as outflows,
+        COUNT(CASE WHEN c.type = 'income' THEN 1 END) as income_count,
+        COUNT(CASE WHEN c.type = 'expense' THEN 1 END) as expense_count
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
+      GROUP BY month
+      ORDER BY month ASC
+    `);
+    const data = stmt.all() as any[];
+
+    const cashFlow = data.map(row => ({
+      month: row.month,
+      inflows: row.inflows || 0,
+      outflows: row.outflows || 0,
+      netFlow: (row.inflows || 0) - (row.outflows || 0),
+      income_count: row.income_count,
+      expense_count: row.expense_count
+    }));
+
+    res.json(cashFlow);
+  } catch (error) {
+    console.error("Cash Flow Report Error:", error);
+    res.status(500).json({ error: "Failed to generate cash flow report" });
   }
 });
 

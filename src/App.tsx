@@ -3,15 +3,16 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { 
-  LayoutDashboard, PieChart as PieChartIcon, Wallet, Settings, 
+import {
+  LayoutDashboard, PieChart as PieChartIcon, Wallet, Settings,
   MessageSquare, Bell, Search, Plus, ArrowUpRight, ArrowDownRight,
-  Activity, TrendingUp, Users, DollarSign, Filter, X, Coffee, Car, Zap
+  Activity, TrendingUp, Users, DollarSign, Filter, X, Coffee, Car, Zap, Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Transaction, DashboardStats } from '@/types';
 import { AddTransactionModal } from '@/components/AddTransactionModal';
+import { ImportModal } from '@/components/ImportModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -35,6 +36,7 @@ export default function App() {
             {activeTab === 'dashboard' && <Dashboard key="dashboard" />}
             {activeTab === 'transactions' && <Transactions key="transactions" />}
             {activeTab === 'scenarios' && <Scenarios key="scenarios" />}
+            {activeTab === 'reports' && <Reports key="reports" />}
           </AnimatePresence>
         </div>
 
@@ -438,18 +440,6 @@ function StatCard({ title, value, trend, positive, icon: Icon, desc }: any) {
   );
 }
 
-function UnitMetric({ label, value, sub }: any) {
-  return (
-    <div className="flex items-center justify-between group p-3 hover:bg-white/5 rounded-2xl transition-colors -mx-3 border border-transparent hover:border-white/5">
-      <div>
-        <p className="text-zinc-300 text-sm font-medium">{label}</p>
-        <p className="text-xs text-zinc-600">{sub}</p>
-      </div>
-      <p className="text-lg font-mono font-medium text-white">{value}</p>
-    </div>
-  );
-}
-
 function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filters, setFilters] = useState({
@@ -461,6 +451,7 @@ function Transactions() {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   useEffect(() => {
     fetchTransactions();
@@ -515,7 +506,14 @@ function Transactions() {
               <Filter className="w-4 h-4" />
               Фильтры
             </button>
-            <button 
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="bg-white/10 text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-white/20 transition-colors flex items-center gap-2 border border-white/10"
+            >
+              <Upload className="w-4 h-4" />
+              Импорт
+            </button>
+            <button
               onClick={() => setShowAddModal(true)}
               className="bg-white text-black px-5 py-2 rounded-full text-sm font-medium hover:bg-zinc-200 transition-colors flex items-center gap-2 shadow-[0_0_15px_rgba(255,255,255,0.3)]"
             >
@@ -662,12 +660,21 @@ function Transactions() {
 
       <AnimatePresence>
         {showAddModal && (
-          <AddTransactionModal 
-            onClose={() => setShowAddModal(false)} 
+          <AddTransactionModal
+            onClose={() => setShowAddModal(false)}
             onSuccess={() => {
               setShowAddModal(false);
               fetchTransactions();
-            }} 
+            }}
+          />
+        )}
+        {showImportModal && (
+          <ImportModal
+            onClose={() => setShowImportModal(false)}
+            onSuccess={() => {
+              setShowImportModal(false);
+              fetchTransactions();
+            }}
           />
         )}
       </AnimatePresence>
@@ -782,6 +789,197 @@ function Scenarios() {
           </div>
         </div>
       </div>
+    </motion.div>
+  );
+}
+
+function Reports() {
+  const [plData, setPlData] = useState<any>(null);
+  const [cashFlowData, setCashFlowData] = useState<any>(null);
+  const [activeReport, setActiveReport] = useState('p-l');
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  const fetchReports = async () => {
+    try {
+      const plRes = await fetch('/api/reports/p-l');
+      const plJson = await plRes.json();
+      setPlData(plJson);
+
+      const cfRes = await fetch('/api/reports/cash-flow');
+      const cfJson = await cfRes.json();
+      setCashFlowData(cfJson);
+    } catch (error) {
+      console.error('Failed to fetch reports', error);
+    }
+  };
+
+  if (!plData || !cashFlowData) {
+    return <div className="p-10 text-zinc-500 animate-pulse">Загрузка отчетов...</div>;
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.5 }}
+      className="space-y-8"
+    >
+      {/* Report Tabs */}
+      <div className="flex gap-3">
+        <button
+          onClick={() => setActiveReport('p-l')}
+          className={cn("px-6 py-3 rounded-xl font-medium transition-all",
+            activeReport === 'p-l'
+              ? "bg-orange-500 text-black"
+              : "bg-white/5 text-zinc-300 hover:bg-white/10"
+          )}
+        >
+          P&L (Прибыли и убытки)
+        </button>
+        <button
+          onClick={() => setActiveReport('cash-flow')}
+          className={cn("px-6 py-3 rounded-xl font-medium transition-all",
+            activeReport === 'cash-flow'
+              ? "bg-orange-500 text-black"
+              : "bg-white/5 text-zinc-300 hover:bg-white/10"
+          )}
+        >
+          Движение денежных средств
+        </button>
+      </div>
+
+      {activeReport === 'p-l' && (
+        <div className="space-y-6">
+          {/* P&L Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Выручка</p>
+              <p className="text-3xl font-bold text-emerald-400">{formatCurrency(plData.totalIncome)}</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Расходы</p>
+              <p className="text-3xl font-bold text-red-400">{formatCurrency(plData.totalExpenses)}</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Чистая прибыль</p>
+              <p className="text-3xl font-bold text-orange-400">{formatCurrency(plData.netProfit)}</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Маржа</p>
+              <p className="text-3xl font-bold text-blue-400">{plData.profitMargin}%</p>
+            </div>
+          </div>
+
+          {/* Income */}
+          <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+            <h3 className="text-xl font-light mb-6 text-white">Доходы</h3>
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="pb-4 text-zinc-500 font-normal">Категория</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Сумма</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Кол-во операций</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Доля</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plData.income.map((row: any, i: number) => (
+                  <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition">
+                    <td className="py-4 text-white">{row.category}</td>
+                    <td className="py-4 text-right font-mono text-emerald-400">{formatCurrency(row.total_amount)}</td>
+                    <td className="py-4 text-right text-zinc-400">{row.transaction_count}</td>
+                    <td className="py-4 text-right text-zinc-400">100%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Expenses */}
+          <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+            <h3 className="text-xl font-light mb-6 text-white">Расходы по категориям</h3>
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="pb-4 text-zinc-500 font-normal">Категория</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Сумма</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Кол-во операций</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Доля</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plData.expenses.map((row: any, i: number) => {
+                  const percentage = ((row.total_amount / plData.totalExpenses) * 100).toFixed(1);
+                  return (
+                    <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition">
+                      <td className="py-4 text-white">{row.category}</td>
+                      <td className="py-4 text-right font-mono text-red-400">{formatCurrency(row.total_amount)}</td>
+                      <td className="py-4 text-right text-zinc-400">{row.transaction_count}</td>
+                      <td className="py-4 text-right text-zinc-400">{percentage}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeReport === 'cash-flow' && (
+        <div className="space-y-6">
+          {/* Cash Flow Chart */}
+          <div className="bg-black/20 border border-white/5 rounded-2xl p-8 h-[400px]">
+            <h3 className="text-xl font-light mb-6 text-white">Движение денежных средств по месяцам</h3>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={cashFlowData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                <XAxis dataKey="month" stroke="#71717a" fontSize={12} />
+                <YAxis stroke="#71717a" fontSize={12} tickFormatter={(value) => `${value/1000}k`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'rgba(24, 24, 27, 0.8)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}
+                  itemStyle={{ color: '#e4e4e7' }}
+                  formatter={(value: number) => formatCurrency(value)}
+                />
+                <Legend />
+                <Bar dataKey="inflows" name="Приходы" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="outflows" name="Уходы" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Cash Flow Table */}
+          <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+            <h3 className="text-xl font-light mb-6 text-white">Детализация по месяцам</h3>
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="pb-4 text-zinc-500 font-normal">Месяц</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Приходы</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Уходы</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Чистый поток</th>
+                  <th className="pb-4 text-zinc-500 font-normal text-right">Операций</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashFlowData.map((row: any, i: number) => (
+                  <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition">
+                    <td className="py-4 text-white">{row.month}</td>
+                    <td className="py-4 text-right font-mono text-emerald-400">{formatCurrency(row.inflows)}</td>
+                    <td className="py-4 text-right font-mono text-red-400">{formatCurrency(row.outflows)}</td>
+                    <td className={cn("py-4 text-right font-mono font-bold", row.netFlow > 0 ? "text-emerald-400" : "text-red-400")}>
+                      {formatCurrency(row.netFlow)}
+                    </td>
+                    <td className="py-4 text-right text-zinc-400">{row.income_count + row.expense_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

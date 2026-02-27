@@ -27,15 +27,7 @@ export function AddTransactionModal({ onClose, onSuccess, initialData }: AddTran
   useEffect(() => {
     fetch('/api/categories')
       .then(res => res.json())
-      .then(data => {
-        setCategories(data);
-        // If initialData has a type, filter categories or pre-select one based on type if category_id is not provided
-        if (initialData?.type && !initialData.category_id) {
-            // This logic is optional, but could be useful if we want to default to the first category of a type
-            // const defaultCat = data.find((c: any) => c.type === initialData.type);
-            // if (defaultCat) setFormData(prev => ({ ...prev, category_id: defaultCat.id }));
-        }
-      });
+      .then(setCategories);
   }, []);
 
   // Debounce analysis
