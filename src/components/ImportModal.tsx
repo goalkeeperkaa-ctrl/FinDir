@@ -14,6 +14,10 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<any[]>([]);
   const [importResult, setImportResult] = useState<any>(null);
+  const [rawData, setRawData] = useState<any[]>([]);
+  const [columnMapping, setColumnMapping] = useState<{date?: string, amount?: string, description?: string, category?: string}>({});
+  const [showColumnMapping, setShowColumnMapping] = useState(false);
+  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -39,28 +43,47 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           return;
         }
 
-        // Validate and normalize data
-        const normalized = data.map(row => ({
-          date: row.date || row.дата || row.Date,
-          amount: row.amount || row.сумма || row.Amount,
-          description: row.description || row.описание || row.Description,
-          category_name: row.category || row.категория || row.Category
-        })).filter(row => row.date && row.amount);
-
-        if (normalized.length === 0) {
-          setError('Не найдены строки с датой и суммой');
-          setIsLoading(false);
-          return;
-        }
-
-        setPreview(normalized.slice(0, 5));
-        submitImport(normalized);
+        // Get available columns
+        const cols = Object.keys(data[0]).filter(k => k.trim() !== '');
+        setAvailableColumns(cols);
+        setRawData(data);
+        setShowColumnMapping(true);
+        setIsLoading(false);
       },
       error: (error) => {
         setError(`Ошибка парсинга: ${error.message}`);
         setIsLoading(false);
       }
     });
+  };
+
+  const normalizeData = () => {
+    const normalized = rawData.map(row => {
+      const mapped: any = {};
+
+      if (columnMapping.date) mapped.date = row[columnMapping.date];
+      if (columnMapping.amount) mapped.amount = row[columnMapping.amount];
+      if (columnMapping.description) mapped.description = row[columnMapping.description] || 'Импортированная транзакция';
+      if (columnMapping.category) mapped.category_name = row[columnMapping.category];
+
+      return mapped;
+    }).filter(row => row.date && row.amount);
+
+    if (normalized.length === 0) {
+      setError('Не найдены строки с датой и суммой. Проверьте выбранные колонки.');
+      return null;
+    }
+
+    return normalized;
+  };
+
+  const proceedWithImport = () => {
+    const normalized = normalizeData();
+    if (normalized) {
+      setPreview(normalized.slice(0, 5));
+      setShowColumnMapping(false);
+      submitImport(normalized);
+    }
   };
 
   const submitImport = async (transactions: any[]) => {
@@ -110,7 +133,90 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         </div>
 
         {!importResult ? (
-          <div className="space-y-6">
+          showColumnMapping ? (
+            <div className="space-y-6">
+              <div>
+                <h4 className="text-white font-medium mb-4">Выберите колонки в файле:</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Дата</label>
+                    <select
+                      value={columnMapping.date || ''}
+                      onChange={(e) => setColumnMapping({...columnMapping, date: e.target.value})}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">-- Выберите колону с датой --</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Сумма *</label>
+                    <select
+                      value={columnMapping.amount || ''}
+                      onChange={(e) => setColumnMapping({...columnMapping, amount: e.target.value})}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">-- Выберите колону с суммой --</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Описание</label>
+                    <select
+                      value={columnMapping.description || ''}
+                      onChange={(e) => setColumnMapping({...columnMapping, description: e.target.value})}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">-- Опционально --</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-500 mb-2">Категория</label>
+                    <select
+                      value={columnMapping.category || ''}
+                      onChange={(e) => setColumnMapping({...columnMapping, category: e.target.value})}
+                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">-- Опционально --</option>
+                      {availableColumns.map(col => (
+                        <option key={col} value={col}>{col}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowColumnMapping(false);
+                    setRawData([]);
+                  }}
+                  className="flex-1 bg-white/5 text-zinc-300 py-2 rounded-lg text-sm font-medium hover:bg-white/10"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={proceedWithImport}
+                  disabled={!columnMapping.amount}
+                  className="flex-1 bg-orange-500 text-black py-2 rounded-lg text-sm font-bold hover:bg-orange-400 disabled:opacity-50"
+                >
+                  Продолжить
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
             <div className="text-sm text-zinc-400 space-y-2">
               <p>📋 Загрузите CSV или Excel файл с колонками:</p>
               <code className="block bg-black/40 p-3 rounded-lg text-xs">
@@ -173,7 +279,8 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                 </div>
               </div>
             )}
-          </div>
+            </div>
+          )
         ) : (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}

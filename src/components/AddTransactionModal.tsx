@@ -23,6 +23,10 @@ export function AddTransactionModal({ onClose, onSuccess, initialData }: AddTran
   const [categories, setCategories] = useState<{id: string, name: string, type: string}[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showCreateCategory, setShowCreateCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryType, setNewCategoryType] = useState<'income' | 'expense'>('expense');
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
 
   useEffect(() => {
     fetch('/api/categories')
@@ -47,9 +51,9 @@ export function AddTransactionModal({ onClose, onSuccess, initialData }: AddTran
       const res = await fetch('/api/categorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          description: formData.description, 
-          amount: parseFloat(formData.amount) 
+        body: JSON.stringify({
+          description: formData.description,
+          amount: parseFloat(formData.amount)
         })
       });
       const data = await res.json();
@@ -60,6 +64,33 @@ export function AddTransactionModal({ onClose, onSuccess, initialData }: AddTran
       console.error("Failed to analyze category", error);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const createCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+
+    setIsCreatingCategory(true);
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newCategoryName,
+          type: newCategoryType
+        })
+      });
+      const newCat = await res.json();
+      setCategories(prev => [...prev, newCat]);
+      setFormData(prev => ({ ...prev, category_id: newCat.id }));
+      setShowCreateCategory(false);
+      setNewCategoryName('');
+      setNewCategoryType('expense');
+    } catch (error) {
+      console.error("Failed to create category", error);
+    } finally {
+      setIsCreatingCategory(false);
     }
   };
 
@@ -141,25 +172,84 @@ export function AddTransactionModal({ onClose, onSuccess, initialData }: AddTran
               Категория
               {isAnalyzing && <span className="text-orange-500 animate-pulse flex items-center gap-1"><Activity className="w-3 h-3" /> AI анализ...</span>}
             </label>
-            <div className="relative">
-              <select 
-                required
-                value={formData.category_id}
-                onChange={(e) => setFormData({...formData, category_id: e.target.value})}
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-orange-500/50 appearance-none transition-colors cursor-pointer"
-              >
-                <option value="" disabled>Выберите категорию</option>
-                {categories.map(cat => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name} ({cat.type === 'income' ? 'Доход' : 'Расход'})
-                  </option>
-                ))}
-              </select>
-              <div className="absolute right-4 top-3.5 pointer-events-none text-zinc-500">
-                <ArrowDownRight className="w-4 h-4" />
+            <div className="space-y-2">
+              <div className="relative">
+                <select
+                  required
+                  value={formData.category_id}
+                  onChange={(e) => setFormData({...formData, category_id: e.target.value})}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-orange-500/50 appearance-none transition-colors cursor-pointer"
+                >
+                  <option value="" disabled>Выберите категорию</option>
+                  {categories.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name} ({cat.type === 'income' ? 'Доход' : 'Расход'})
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-3.5 pointer-events-none text-zinc-500">
+                  <ArrowDownRight className="w-4 h-4" />
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateCategory(!showCreateCategory)}
+                className="w-full text-xs text-orange-400 hover:text-orange-300 font-medium py-2 rounded-lg bg-orange-500/5 hover:bg-orange-500/10 transition-colors"
+              >
+                + Создать новую категорию
+              </button>
             </div>
           </div>
+
+          {showCreateCategory && (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 space-y-3">
+              <div className="space-y-2">
+                <label className="block text-xs text-zinc-500 uppercase tracking-wider font-medium">Название категории</label>
+                <input
+                  type="text"
+                  placeholder="Например: Доменные имена"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-orange-500/50 transition-colors"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="block text-xs text-zinc-500 uppercase tracking-wider font-medium">Тип</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewCategoryType('expense')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors ${
+                      newCategoryType === 'expense'
+                        ? 'bg-red-500/30 text-red-300 border border-red-500/50'
+                        : 'bg-white/5 text-zinc-400 border border-white/10'
+                    }`}
+                  >
+                    Расход
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewCategoryType('income')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors ${
+                      newCategoryType === 'income'
+                        ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
+                        : 'bg-white/5 text-zinc-400 border border-white/10'
+                    }`}
+                  >
+                    Доход
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={createCategory}
+                disabled={isCreatingCategory || !newCategoryName.trim()}
+                className="w-full bg-orange-500 text-black py-2 rounded-lg text-xs font-bold hover:bg-orange-400 transition-colors disabled:opacity-50"
+              >
+                {isCreatingCategory ? 'Создание...' : 'Создать'}
+              </button>
+            </div>
+          )}
 
           <div className="pt-6 flex gap-4">
             <button 

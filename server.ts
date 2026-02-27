@@ -77,6 +77,25 @@ app.get("/api/categories", withDatabase(async (req, res) => {
   }
 }));
 
+// Create a new category
+app.post("/api/categories", withDatabase(async (req, res) => {
+  const { name, type } = req.body;
+  try {
+    if (!name || !type || !['income', 'expense'].includes(type)) {
+      return res.status(400).json({ error: "Name and type (income/expense) are required" });
+    }
+
+    const id = uuidv4();
+    await execute('INSERT INTO categories (id, name, type) VALUES ($1, $2, $3)',
+      [id, name, type]);
+
+    res.json({ id, name, type });
+  } catch (error) {
+    console.error("Error creating category:", error);
+    res.status(500).json({ error: "Failed to create category" });
+  }
+}));
+
 // Add a transaction
 app.post("/api/transactions", async (req, res) => {
   const { date, amount, description, category_id } = req.body;
