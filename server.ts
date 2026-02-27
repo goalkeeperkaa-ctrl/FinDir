@@ -198,7 +198,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 
-// --- Vite Middleware ---
+// ... Vite Middleware ...
 if (process.env.NODE_ENV !== "production") {
   const vite = await createViteServer({
     server: { middlewareMode: true },
@@ -207,6 +207,10 @@ if (process.env.NODE_ENV !== "production") {
   app.use(vite.middlewares);
 }
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;
