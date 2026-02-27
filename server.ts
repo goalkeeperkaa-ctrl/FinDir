@@ -1,6 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import db from "./server/db";
+import { initializeDatabase, query, queryOne, execute } from "./server/db-manager";
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
 
@@ -12,92 +12,108 @@ app.use(express.json());
 // --- API Routes ---
 
 // Get all transactions
-app.get("/api/transactions", (req, res) => {
-  const stmt = db.prepare(`
-    SELECT t.*, c.name as category_name, c.type as category_type 
-    FROM transactions t 
-    LEFT JOIN categories c ON t.category_id = c.id 
-    ORDER BY t.date DESC
-  `);
-  const transactions = stmt.all();
-  res.json(transactions);
+app.get("/api/transactions", async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT t.*, c.name as category_name, c.type as category_type
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
+      ORDER BY t.date DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching transactions:", error);
+    res.status(500).json({ error: "Failed to fetch transactions" });
+  }
 });
 
 // Get all categories
-app.get("/api/categories", (req, res) => {
-  const categories = db.prepare('SELECT * FROM categories ORDER BY name').all();
-  res.json(categories);
+app.get("/api/categories", async (req, res) => {
+  try {
+    const result = await query('SELECT * FROM categories ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching categories:", error);
+    res.status(500).json({ error: "Failed to fetch categories" });
+  }
 });
 
 // Add a transaction
-app.post("/api/transactions", (req, res) => {
+app.post("/api/transactions", async (req, res) => {
   const { date, amount, description, category_id } = req.body;
   const id = uuidv4();
-  const stmt = db.prepare('INSERT INTO transactions (id, date, amount, description, category_id) VALUES (?, ?, ?, ?, ?)');
   try {
-    stmt.run(id, date, amount, description, category_id || null);
+    await execute('INSERT INTO transactions (id, date, amount, description, category_id) VALUES ($1, $2, $3, $4, $5)',
+      [id, date, amount, description, category_id || null]);
     res.json({ id, date, amount, description, category_id });
   } catch (error) {
+    console.error("Error adding transaction:", error);
     res.status(500).json({ error: "Failed to add transaction" });
   }
 });
 
 // Get stats for dashboard
-app.get("/api/stats", (req, res) => {
-  const incomeStmt = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE type = 'income')");
-  const expenseStmt = db.prepare("SELECT SUM(amount) as total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE type = 'expense')");
-  
-  const income = (incomeStmt.get() as any).total || 0;
-  const expenses = (expenseStmt.get() as any).total || 0;
-  
-  // Monthly data for chart
-  const monthlyStmt = db.prepare(`
-    SELECT strftime('%Y-%m', date) as month, 
-           SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END) as income,
-           SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END) as expense
-    FROM transactions t
-    JOIN categories c ON t.category_id = c.id
-    GROUP BY month
-    ORDER BY month ASC
-    LIMIT 12
-  `);
-  const monthlyData = monthlyStmt.all();
+app.get("/api/stats", async (req, res) => {
+  try {
+    const incomeResult = await queryOne("SELECT SUM(amount) as total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE type = 'income')");
+    const expenseResult = await queryOne("SELECT SUM(amount) as total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE type = 'expense')");
 
-  // Expense distribution for current month
-  const expenseDistStmt = db.prepare(`
-    SELECT c.name, SUM(t.amount) as value
-    FROM transactions t
-    JOIN categories c ON t.category_id = c.id
-    WHERE c.type = 'expense' AND strftime('%Y-%m', t.date) = strftime('%Y-%m', 'now')
-    GROUP BY c.name
-    ORDER BY value DESC
-  `);
-  const expenseDistribution = expenseDistStmt.all() as { name: string, value: number }[];
+    const income = (incomeResult?.total as any) || 0;
+    const expenses = (expenseResult?.total as any) || 0;
 
-  // Budget Progress (Mock budgets for demonstration)
-  const BUDGET_LIMITS: Record<string, number> = {
-    'Фонд оплаты труда': 600000,
-    'Сервисы и ПО': 80000,
-    'Маркетинг': 200000,
-    'Аренда офиса': 150000,
-    'Налоги': 100000
-  };
+    // Monthly data for chart
+    const monthlyResult = await query(`
+      SELECT SUBSTRING(t.date, 1, 7) as month,
+             SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END) as income,
+             SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END) as expense
+      FROM transactions t
+      JOIN categories c ON t.category_id = c.id
+      GROUP BY SUBSTRING(t.date, 1, 7)
+      ORDER BY month ASC
+      LIMIT 12
+    `);
+    const monthlyData = monthlyResult.rows;
 
-  const budgetProgress = expenseDistribution.map(item => ({
-    category: item.name,
-    spent: item.value,
-    limit: BUDGET_LIMITS[item.name] || 100000, // Default limit if not specified
-    percentage: Math.min(100, (item.value / (BUDGET_LIMITS[item.name] || 100000)) * 100)
-  })).sort((a, b) => b.percentage - a.percentage);
+    // Expense distribution for current month
+    const currentMonth = new Date().toISOString().split('T')[0].slice(0, 7);
+    const expenseDistResult = await query(`
+      SELECT c.name, SUM(t.amount) as value
+      FROM transactions t
+      JOIN categories c ON t.category_id = c.id
+      WHERE c.type = 'expense' AND SUBSTRING(t.date, 1, 7) = $1
+      GROUP BY c.name
+      ORDER BY value DESC
+    `, [currentMonth]);
+    const expenseDistribution = expenseDistResult.rows as { name: string, value: number }[];
 
-  res.json({
-    totalIncome: income,
-    totalExpenses: expenses,
-    netProfit: income - expenses,
-    chartData: monthlyData,
-    expenseDistribution,
-    budgetProgress
-  });
+    // Budget Progress (Mock budgets for demonstration)
+    const BUDGET_LIMITS: Record<string, number> = {
+      'Фонд оплаты труда': 600000,
+      'Сервисы и ПО': 80000,
+      'Маркетинг': 200000,
+      'Аренда офиса': 150000,
+      'Налоги': 100000
+    };
+
+    const budgetProgress = expenseDistribution.map(item => ({
+      category: item.name,
+      spent: item.value,
+      limit: BUDGET_LIMITS[item.name] || 100000,
+      percentage: Math.min(100, (item.value / (BUDGET_LIMITS[item.name] || 100000)) * 100)
+    })).sort((a, b) => b.percentage - a.percentage);
+
+    res.json({
+      totalIncome: income,
+      totalExpenses: expenses,
+      netProfit: income - expenses,
+      chartData: monthlyData,
+      expenseDistribution,
+      budgetProgress
+    });
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    res.status(500).json({ error: "Failed to fetch stats" });
+  }
 });
 
 // AI Categorization Endpoint
@@ -112,7 +128,8 @@ app.post("/api/categorize", async (req, res) => {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     // Fetch available categories
-    const categories = db.prepare('SELECT id, name, type FROM categories').all() as { id: string, name: string, type: string }[];
+    const categoriesResult = await query('SELECT id, name, type FROM categories');
+    const categories = categoriesResult.rows as { id: string, name: string, type: string }[];
     const categoriesJson = JSON.stringify(categories);
 
     const prompt = `
@@ -134,10 +151,10 @@ app.post("/api/categorize", async (req, res) => {
     });
 
     const categoryId = result.text?.trim();
-    
+
     // Verify the category exists
     const category = categories.find(c => c.id === categoryId);
-    
+
     if (category) {
       res.json({ category_id: category.id, category_name: category.name });
     } else {
@@ -153,9 +170,9 @@ app.post("/api/categorize", async (req, res) => {
 });
 
 // P&L Report Endpoint
-app.get("/api/reports/p-l", (req, res) => {
+app.get("/api/reports/p-l", async (req, res) => {
   try {
-    const stmt = db.prepare(`
+    const result = await query(`
       SELECT
         c.name as category,
         c.type,
@@ -166,7 +183,7 @@ app.get("/api/reports/p-l", (req, res) => {
       GROUP BY c.id, c.name, c.type
       ORDER BY c.type DESC, total_amount DESC
     `);
-    const data = stmt.all() as any[];
+    const data = result.rows as any[];
 
     const income = data.filter(row => row.type === 'income');
     const expenses = data.filter(row => row.type === 'expense');
@@ -189,7 +206,7 @@ app.get("/api/reports/p-l", (req, res) => {
 });
 
 // Bulk Import Transactions Endpoint
-app.post("/api/import", (req, res) => {
+app.post("/api/import", async (req, res) => {
   try {
     const { transactions } = req.body;
 
@@ -197,13 +214,10 @@ app.post("/api/import", (req, res) => {
       return res.status(400).json({ error: "Invalid or empty transactions array" });
     }
 
-    const insertTx = db.prepare('INSERT INTO transactions (id, date, amount, description, category_id, status) VALUES (?, ?, ?, ?, ?, ?)');
-    const getCategory = db.prepare('SELECT id FROM categories WHERE LOWER(name) LIKE LOWER(?)');
-
     let imported = 0;
     let errors: string[] = [];
 
-    transactions.forEach((tx: any, index: number) => {
+    for (const [index, tx] of transactions.entries()) {
       try {
         const date = tx.date || new Date().toISOString().split('T')[0];
         const amount = parseFloat(tx.amount);
@@ -212,22 +226,25 @@ app.post("/api/import", (req, res) => {
 
         if (!date || isNaN(amount)) {
           errors.push(`Строка ${index + 1}: Недостаточные данные (дата/сумма)`);
-          return;
+          continue;
         }
 
         // If category not provided, try to find by name
         if (!category_id && tx.category_name) {
-          const cat = getCategory.get(`%${tx.category_name}%`) as { id: string } | undefined;
-          category_id = cat?.id;
+          const catResult = await query('SELECT id FROM categories WHERE LOWER(name) LIKE LOWER($1)', [`%${tx.category_name}%`]);
+          if (catResult.rows.length > 0) {
+            category_id = catResult.rows[0].id;
+          }
         }
 
         const id = uuidv4();
-        insertTx.run(id, date, amount, description, category_id || null, 'cleared');
+        await execute('INSERT INTO transactions (id, date, amount, description, category_id, status) VALUES ($1, $2, $3, $4, $5, $6)',
+          [id, date, amount, description, category_id || null, 'cleared']);
         imported++;
       } catch (e) {
         errors.push(`Строка ${index + 1}: ${String(e)}`);
       }
-    });
+    }
 
     res.json({
       imported,
@@ -241,21 +258,21 @@ app.post("/api/import", (req, res) => {
 });
 
 // Cash Flow Report Endpoint
-app.get("/api/reports/cash-flow", (req, res) => {
+app.get("/api/reports/cash-flow", async (req, res) => {
   try {
-    const stmt = db.prepare(`
+    const result = await query(`
       SELECT
-        strftime('%Y-%m', t.date) as month,
+        SUBSTRING(t.date, 1, 7) as month,
         SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END) as inflows,
         SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END) as outflows,
         COUNT(CASE WHEN c.type = 'income' THEN 1 END) as income_count,
         COUNT(CASE WHEN c.type = 'expense' THEN 1 END) as expense_count
       FROM transactions t
       LEFT JOIN categories c ON t.category_id = c.id
-      GROUP BY month
+      GROUP BY SUBSTRING(t.date, 1, 7)
       ORDER BY month ASC
     `);
-    const data = stmt.all() as any[];
+    const data = result.rows as any[];
 
     const cashFlow = data.map(row => ({
       month: row.month,
@@ -276,25 +293,25 @@ app.get("/api/reports/cash-flow", (req, res) => {
 // AI Chat Endpoint
 app.post("/api/chat", async (req, res) => {
   const { message } = req.body;
-  
+
   if (!process.env.GEMINI_API_KEY) {
     return res.status(500).json({ error: "Gemini API Key not configured" });
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    
+
     // Fetch context data (last 50 transactions summary)
-    const txStmt = db.prepare(`
-      SELECT t.date, t.amount, t.description, c.name as category, c.type 
-      FROM transactions t 
-      LEFT JOIN categories c ON t.category_id = c.id 
+    const txResult = await query(`
+      SELECT t.date, t.amount, t.description, c.name as category, c.type
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
       ORDER BY t.date DESC LIMIT 50
     `);
-    const transactions = txStmt.all();
-    
+    const transactions = txResult.rows;
+
     const context = JSON.stringify(transactions);
-    
+
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash-latest",
       contents: [{ role: 'user', parts: [{ text: message }] }],
@@ -305,11 +322,11 @@ app.post("/api/chat", async (req, res) => {
         Твой тон: профессиональный, лаконичный, футуристичный.
         Язык ответов: Русский.
         Валюта: Рубли (₽).
-        
+
         Контекст данных: ${context}`
       }
     });
-    
+
     const response = result.text;
     res.json({ response });
   } catch (error) {
@@ -319,19 +336,39 @@ app.post("/api/chat", async (req, res) => {
 });
 
 
-// ... Vite Middleware ...
-if (process.env.NODE_ENV !== "production") {
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa",
-  });
-  app.use(vite.middlewares);
+// Initialize database and start server
+async function start() {
+  try {
+    await initializeDatabase();
+
+    // ... Vite Middleware ...
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    }
+
+    if (!process.env.VERCEL) {
+      const server = app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+      });
+
+      // Graceful shutdown
+      process.on("SIGTERM", () => {
+        console.log("SIGTERM received, shutting down gracefully");
+        server.close(() => {
+          process.exit(0);
+        });
+      });
+    }
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
 }
 
-if (!process.env.VERCEL) {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-}
+start();
 
 export default app;

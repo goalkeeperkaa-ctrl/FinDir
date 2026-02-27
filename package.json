@@ -23,6 +23,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "papaparse": "^5.4.1",
+    "pg": "^8.11.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^3.7.0",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.11.6",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

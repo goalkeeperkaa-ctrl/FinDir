@@ -1,6 +1,6 @@
 # FinDir Deployment Guide
 
-## Locаль разработки
+## Локаль разработки
 
 ### Требования
 - Node.js 18+
@@ -19,10 +19,19 @@ cp .env.example .env.local
 # Получить ключ: https://ai.google.dev
 # Отредактировать: .env.local
 
-# 4. Run dev server
+# 4. Run dev server (uses SQLite by default)
 npm run dev
 
 # Сервер запустится на http://localhost:3000
+```
+
+### Использование PostgreSQL локально (опционально)
+
+```bash
+# Если хотите тестировать PostgreSQL локально:
+DATABASE_URL="postgresql://user:password@host:5432/dbname" npm run dev
+
+# Приложение автоматически переключится на PostgreSQL
 ```
 
 ### Тестирование
@@ -42,68 +51,56 @@ npm run preview
 
 ## Deployment на Vercel
 
-### Шаг 1: Подготовка к миграции БД
-
-Locально SQLite тестируется, но на Vercel нужна persistent БД. Варианты:
-
-**Вариант A: PostgreSQL (рекомендуется)**
-- Создать БД на: Railway, Supabase, или Neon
-- Добавить DATABASE_URL в Vercel environment variables
-
-**Вариант B: MongoDB** (если нужна NoSQL)
-- Создать на MongoDB Atlas
-- Подключить через Mongoose или native driver
-
-**Вариант C: Vercel Storage** (пока в бета)
-- Использовать встроенное хранилище Vercel
-
-### Шаг 2: Миграция на Vercel
+### Шаг 1: Создание PostgreSQL БД (Supabase рекомендуется)
 
 ```bash
-# 1. Создать Vercel project
-vercel login
-vercel link
+# 1. Перейти на https://supabase.com
+# 2. Создать новый проект (выбрать ближайший регион)
+# 3. Дождаться инициализации (2-3 минуты)
+# 4. Settings → Database → Connection string
+# 5. Скопировать полную URL (включает пароль)
+# 6. Сохранить где-то безопасно
+```
 
-# 2. Добавить env variables в Vercel
-# Settings → Environment Variables
-# - GEMINI_API_KEY
-# - DATABASE_URL (если не SQLite)
-# - NODE_ENV=production
+**Альтернативы**: Railway, Neon, или другие PostgreSQL хостинги
 
-# 3. Деплой
+### Шаг 2: Деплой на Vercel
+
+```bash
+# 1. Убедиться что всё закомичено:
+git add .
+git commit -m "Add PostgreSQL support"
+git push origin main
+
+# 2. Перейти на https://vercel.com/dashboard
+# 3. Settings → Environment Variables для FinDir проекта
+# 4. Добавить переменные:
+#    - DATABASE_URL: (postgresql:// URL из Supabase)
+#    - GEMINI_API_KEY: (опционально, для AI)
+#    - NODE_ENV: production
+
+# 5. Деплой выполнится автоматически или:
 vercel deploy --prod
 ```
 
-### Шаг 3: Настройка PostgreSQL (если выбран)
+**Результат**: Приложение переключится на PostgreSQL автоматически!
 
-#### Использование Supabase (легче всего):
+### Шаг 3: Готовая PostgreSQL поддержка
 
-```bash
-# 1. Создать Supabase project: https://supabase.com
-# 2. Получить DATABASE_URL
-# 3. Мигрировать схему:
+**Хорошая новость**: Приложение уже полностью поддерживает PostgreSQL!
 
-npm install pg
-npx pg-migrate create --postgres-url "postgresql://..." <<EOF
-CREATE TABLE categories (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('income', 'expense'))
-);
+Когда вы установите `DATABASE_URL` в Vercel:
+- ✅ Приложение автоматически переключится на PostgreSQL
+- ✅ Таблицы будут созданы автоматически
+- ✅ Категории будут инициализированы автоматически
+- ✅ Все API endpoints будут работать как с SQLite, так и с PostgreSQL
 
-CREATE TABLE transactions (
-  id TEXT PRIMARY KEY,
-  date TEXT NOT NULL,
-  amount REAL NOT NULL,
-  description TEXT NOT NULL,
-  category_id TEXT,
-  status TEXT DEFAULT 'pending',
-  FOREIGN KEY (category_id) REFERENCES categories(id)
-);
-EOF
+**Файлы для PostgreSQL поддержки:**
+- `server/db-manager.ts` - Абстракция БД (работает с обоими)
+- `server/db-postgres.ts` - PostgreSQL инициализация
+- `server.ts` - Все endpoints обновлены на async/await
 
-# 4. Seed начальные категории (в server.ts нужно обновить подключение)
-```
+Просто добавьте `DATABASE_URL` в Vercel и деплойте! 🚀
 
 ---
 
