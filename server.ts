@@ -583,7 +583,7 @@ function withDatabase(handler: (req: any, res: any) => Promise<void>) {
 async function start() {
   try {
     // Vite Middleware (only in local development, not on Vercel)
-    if (!process.env.VERCEL && process.env.NODE_ENV !== "production") {
+    if (!process.env.VERCEL) {
       try {
         const vite = await createViteServer({
           server: { middlewareMode: true },
