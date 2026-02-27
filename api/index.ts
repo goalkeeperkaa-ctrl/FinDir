@@ -3,7 +3,9 @@ let app: any;
 
 async function initializeApp() {
   if (app) return app;
-  app = (await import('../server')).default;
+  // Use compiled server.js with explicit file extension
+  const serverModule = require('../server.js');
+  app = serverModule.default || serverModule;
   return app;
 }
 
