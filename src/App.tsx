@@ -796,6 +796,8 @@ function Scenarios() {
 function Reports() {
   const [plData, setPlData] = useState<any>(null);
   const [cashFlowData, setCashFlowData] = useState<any>(null);
+  const [anomaliesData, setAnomaliesData] = useState<any>(null);
+  const [unitEconomics, setUnitEconomics] = useState<any>(null);
   const [activeReport, setActiveReport] = useState('p-l');
 
   useEffect(() => {
@@ -811,12 +813,20 @@ function Reports() {
       const cfRes = await fetch('/api/reports/cash-flow');
       const cfJson = await cfRes.json();
       setCashFlowData(cfJson);
+
+      const anomRes = await fetch('/api/anomalies');
+      const anomJson = await anomRes.json();
+      setAnomaliesData(anomJson);
+
+      const ueRes = await fetch('/api/unit-economics');
+      const ueJson = await ueRes.json();
+      setUnitEconomics(ueJson);
     } catch (error) {
       console.error('Failed to fetch reports', error);
     }
   };
 
-  if (!plData || !cashFlowData) {
+  if (!plData || !cashFlowData || !anomaliesData || !unitEconomics) {
     return <div className="p-10 text-zinc-500 animate-pulse">Загрузка отчетов...</div>;
   }
 
@@ -828,26 +838,46 @@ function Reports() {
       className="space-y-8"
     >
       {/* Report Tabs */}
-      <div className="flex gap-3">
+      <div className="flex gap-2 overflow-x-auto pb-2">
         <button
           onClick={() => setActiveReport('p-l')}
-          className={cn("px-6 py-3 rounded-xl font-medium transition-all",
+          className={cn("px-6 py-3 rounded-xl font-medium transition-all whitespace-nowrap",
             activeReport === 'p-l'
               ? "bg-orange-500 text-black"
               : "bg-white/5 text-zinc-300 hover:bg-white/10"
           )}
         >
-          P&L (Прибыли и убытки)
+          P&L
         </button>
         <button
           onClick={() => setActiveReport('cash-flow')}
-          className={cn("px-6 py-3 rounded-xl font-medium transition-all",
+          className={cn("px-6 py-3 rounded-xl font-medium transition-all whitespace-nowrap",
             activeReport === 'cash-flow'
               ? "bg-orange-500 text-black"
               : "bg-white/5 text-zinc-300 hover:bg-white/10"
           )}
         >
-          Движение денежных средств
+          Кассовый поток
+        </button>
+        <button
+          onClick={() => setActiveReport('unit-economics')}
+          className={cn("px-6 py-3 rounded-xl font-medium transition-all whitespace-nowrap",
+            activeReport === 'unit-economics'
+              ? "bg-orange-500 text-black"
+              : "bg-white/5 text-zinc-300 hover:bg-white/10"
+          )}
+        >
+          Юнит-экономика
+        </button>
+        <button
+          onClick={() => setActiveReport('anomalies')}
+          className={cn("px-6 py-3 rounded-xl font-medium transition-all whitespace-nowrap",
+            activeReport === 'anomalies'
+              ? "bg-orange-500 text-black"
+              : "bg-white/5 text-zinc-300 hover:bg-white/10"
+          )}
+        >
+          Аномалии
         </button>
       </div>
 
@@ -978,6 +1008,148 @@ function Reports() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeReport === 'unit-economics' && (
+        <div className="space-y-6">
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Выручка</p>
+              <p className="text-3xl font-bold text-emerald-400">{formatCurrency(unitEconomics.revenue)}</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Расходы</p>
+              <p className="text-3xl font-bold text-red-400">{formatCurrency(unitEconomics.expenses)}</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Маржа</p>
+              <p className="text-3xl font-bold text-blue-400">{unitEconomics.margin_percent}%</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Чистая прибыль</p>
+              <p className={cn("text-3xl font-bold", unitEconomics.profit >= 0 ? "text-emerald-400" : "text-red-400")}>
+                {formatCurrency(unitEconomics.profit)}
+              </p>
+            </div>
+          </div>
+
+          {/* Burn Rate & Runway */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+              <h3 className="text-xl font-light mb-4 text-white">Скорость трат (Burn Rate)</h3>
+              <p className="text-4xl font-bold text-orange-400 mb-2">{formatCurrency(unitEconomics.burn_rate)}</p>
+              <p className="text-zinc-500 text-sm">в месяц</p>
+            </div>
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+              <h3 className="text-xl font-light mb-4 text-white">Runway (Финансовая подушка)</h3>
+              <p className="text-4xl font-bold text-blue-400 mb-2">{unitEconomics.runway_months}</p>
+              <p className="text-zinc-500 text-sm">месяцев работы</p>
+            </div>
+          </div>
+
+          {/* Growth Metrics */}
+          <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+            <h3 className="text-xl font-light mb-6 text-white">Динамика (месяц к месяцу)</h3>
+            <div className="grid grid-cols-2 gap-8">
+              <div>
+                <p className="text-zinc-500 text-sm mb-2">Рост выручки</p>
+                <p className={cn("text-2xl font-bold", unitEconomics.growth.revenue_mom >= 0 ? "text-emerald-400" : "text-red-400")}>
+                  {unitEconomics.growth.revenue_mom > 0 ? '+' : ''}{unitEconomics.growth.revenue_mom}%
+                </p>
+              </div>
+              <div>
+                <p className="text-zinc-500 text-sm mb-2">Изменение расходов</p>
+                <p className={cn("text-2xl font-bold", unitEconomics.growth.expense_mom <= 0 ? "text-emerald-400" : "text-red-400")}>
+                  {unitEconomics.growth.expense_mom > 0 ? '+' : ''}{unitEconomics.growth.expense_mom}%
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 6 Month Trend */}
+          <div className="bg-black/20 border border-white/5 rounded-2xl p-8 h-[400px]">
+            <h3 className="text-xl font-light mb-6 text-white">Тренд на 6 месяцев</h3>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={unitEconomics.monthly_data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
+                <XAxis dataKey="month" stroke="#71717a" fontSize={12} />
+                <YAxis stroke="#71717a" fontSize={12} tickFormatter={(value) => `${value/1000}k`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'rgba(24, 24, 27, 0.8)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px' }}
+                  itemStyle={{ color: '#e4e4e7' }}
+                  formatter={(value: number) => formatCurrency(value)}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} name="Выручка" />
+                <Line type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} name="Расходы" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {activeReport === 'anomalies' && (
+        <div className="space-y-6">
+          {/* Anomalies Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Всего транзакций проверено</p>
+              <p className="text-3xl font-bold text-white">{anomaliesData.total}</p>
+            </div>
+            <div className="bg-black/20 border border-red-500/20 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Высокая степень риска</p>
+              <p className="text-3xl font-bold text-red-400">{anomaliesData.summary.high_severity}</p>
+            </div>
+            <div className="bg-black/20 border border-yellow-500/20 rounded-2xl p-6">
+              <p className="text-zinc-500 text-sm mb-2">Средняя степень риска</p>
+              <p className="text-3xl font-bold text-yellow-400">{anomaliesData.summary.medium_severity}</p>
+            </div>
+          </div>
+
+          {/* Anomalies Table */}
+          {anomaliesData.anomalies.length > 0 ? (
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-8">
+              <h3 className="text-xl font-light mb-6 text-white">Обнаруженные аномалии</h3>
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="pb-4 text-zinc-500 font-normal">Дата</th>
+                    <th className="pb-4 text-zinc-500 font-normal">Сумма</th>
+                    <th className="pb-4 text-zinc-500 font-normal">Описание</th>
+                    <th className="pb-4 text-zinc-500 font-normal">Категория</th>
+                    <th className="pb-4 text-zinc-500 font-normal">Статус</th>
+                    <th className="pb-4 text-zinc-500 font-normal text-right">Z-Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {anomaliesData.anomalies.map((anom: any, i: number) => (
+                    <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition">
+                      <td className="py-4 text-white">{anom.date}</td>
+                      <td className="py-4 font-mono text-orange-400 font-bold">{formatCurrency(anom.amount)}</td>
+                      <td className="py-4 text-zinc-300 truncate">{anom.description}</td>
+                      <td className="py-4 text-white">{anom.category}</td>
+                      <td className="py-4">
+                        <span className={cn("px-3 py-1 rounded-full text-xs font-medium",
+                          anom.severity === 'high'
+                            ? "bg-red-500/20 text-red-300"
+                            : "bg-yellow-500/20 text-yellow-300"
+                        )}>
+                          {anom.severity === 'high' ? '🔴 Высокая' : '🟡 Средняя'}
+                        </span>
+                      </td>
+                      <td className="py-4 text-right font-mono text-zinc-400">{anom.zscore}σ</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="bg-black/20 border border-white/5 rounded-2xl p-12 text-center">
+              <p className="text-zinc-400 text-lg">✨ Аномалий не обнаружено. Всё в порядке!</p>
+            </div>
+          )}
         </div>
       )}
     </motion.div>

@@ -296,6 +296,150 @@ app.post("/api/import", async (req, res) => {
   }
 });
 
+// Anomaly Detection Endpoint
+app.get("/api/anomalies", withDatabase(async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        t.id, t.date, t.amount, t.description, c.name as category,
+        c.type, c.id as category_id
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
+      WHERE c.type = 'expense'
+      ORDER BY t.date DESC
+      LIMIT 200
+    `);
+
+    const transactions = result.rows as any[];
+    const anomalies: any[] = [];
+
+    // Group by category
+    const byCategory = new Map<string, number[]>();
+    transactions.forEach(tx => {
+      if (!byCategory.has(tx.category)) {
+        byCategory.set(tx.category, []);
+      }
+      byCategory.get(tx.category)!.push(tx.amount);
+    });
+
+    // Detect anomalies per category (amounts > 2 std devs from mean)
+    transactions.forEach(tx => {
+      const amounts = byCategory.get(tx.category) || [];
+      if (amounts.length < 3) return;
+
+      const mean = amounts.reduce((a, b) => a + b) / amounts.length;
+      const variance = amounts.reduce((a, b) => a + Math.pow(b - mean, 2)) / amounts.length;
+      const stdDev = Math.sqrt(variance);
+      const zScore = Math.abs((tx.amount - mean) / (stdDev || 1));
+
+      if (zScore > 2) {
+        anomalies.push({
+          id: tx.id,
+          date: tx.date,
+          amount: tx.amount,
+          description: tx.description,
+          category: tx.category,
+          zscore: parseFloat(zScore.toFixed(2)),
+          severity: zScore > 3 ? 'high' : 'medium',
+          reason: tx.amount > mean ? 'выше обычного' : 'ниже обычного'
+        });
+      }
+    });
+
+    res.json({
+      total: transactions.length,
+      anomalies: anomalies.sort((a, b) => b.zscore - a.zscore),
+      summary: {
+        high_severity: anomalies.filter(a => a.severity === 'high').length,
+        medium_severity: anomalies.filter(a => a.severity === 'medium').length
+      }
+    });
+  } catch (error) {
+    console.error("Anomaly detection error:", error);
+    res.status(500).json({ error: "Failed to detect anomalies" });
+  }
+}));
+
+// Unit Economics Endpoint
+app.get("/api/unit-economics", withDatabase(async (req, res) => {
+  try {
+    // Get revenue and expenses
+    const incomeResult = await queryOne(
+      "SELECT SUM(amount) as total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE type = 'income')"
+    );
+    const expenseResult = await queryOne(
+      "SELECT SUM(amount) as total FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE type = 'expense')"
+    );
+
+    const revenue = (incomeResult?.total as any) || 0;
+    const totalExpense = (expenseResult?.total as any) || 0;
+
+    // Get monthly data for trend analysis
+    const monthlyResult = await query(`
+      SELECT SUBSTRING(t.date, 1, 7) as month,
+             SUM(CASE WHEN c.type = 'income' THEN t.amount ELSE 0 END) as income,
+             SUM(CASE WHEN c.type = 'expense' THEN t.amount ELSE 0 END) as expense
+      FROM transactions t
+      LEFT JOIN categories c ON t.category_id = c.id
+      GROUP BY SUBSTRING(t.date, 1, 7)
+      ORDER BY month DESC
+      LIMIT 12
+    `);
+
+    const monthlyData = monthlyResult.rows as any[];
+    const currentMonth = monthlyData[0];
+    const previousMonth = monthlyData[1];
+
+    // Calculate metrics
+    const profit = revenue - totalExpense;
+    const marginPercent = revenue > 0 ? (profit / revenue * 100).toFixed(2) : 0;
+
+    // Burn rate (monthly expense average)
+    const avgMonthlyExpense = monthlyData.length > 0
+      ? monthlyData.reduce((sum, m) => sum + (m.expense || 0), 0) / monthlyData.length
+      : 0;
+
+    // Runway (months until out of money at current burn rate)
+    const runway = avgMonthlyExpense > 0 ? Math.floor(profit / avgMonthlyExpense) : 0;
+
+    // Growth metrics
+    const prevRevenue = previousMonth?.income || 0;
+    const revenueMoM = prevRevenue > 0
+      ? (((currentMonth?.income || 0) - prevRevenue) / prevRevenue * 100).toFixed(2)
+      : 0;
+
+    const prevExpense = previousMonth?.expense || 0;
+    const expenseMoM = prevExpense > 0
+      ? (((currentMonth?.expense || 0) - prevExpense) / prevExpense * 100).toFixed(2)
+      : 0;
+
+    res.json({
+      revenue: parseFloat(revenue.toFixed(2)),
+      expenses: parseFloat(totalExpense.toFixed(2)),
+      profit: parseFloat(profit.toFixed(2)),
+      margin_percent: marginPercent,
+
+      burn_rate: parseFloat(avgMonthlyExpense.toFixed(2)),
+      runway_months: runway,
+
+      growth: {
+        revenue_mom: revenueMoM,
+        expense_mom: expenseMoM
+      },
+
+      monthly_data: monthlyData.slice(0, 6).map(m => ({
+        month: m.month,
+        income: parseFloat((m.income || 0).toFixed(2)),
+        expense: parseFloat((m.expense || 0).toFixed(2)),
+        profit: parseFloat(((m.income || 0) - (m.expense || 0)).toFixed(2))
+      }))
+    });
+  } catch (error) {
+    console.error("Unit economics error:", error);
+    res.status(500).json({ error: "Failed to calculate unit economics" });
+  }
+}));
+
 // Cash Flow Report Endpoint
 app.get("/api/reports/cash-flow", async (req, res) => {
   try {
@@ -424,7 +568,13 @@ async function start() {
           server: { middlewareMode: true },
           appType: "spa",
         });
-        app.use(vite.middlewares);
+        // Skip Vite middleware for API routes
+        app.use((req, res, next) => {
+          if (req.url.startsWith('/api/')) {
+            return next();
+          }
+          return vite.middlewares(req, res, next);
+        });
       } catch (viteError) {
         console.warn("Vite initialization failed, skipping:", viteError);
       }
