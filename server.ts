@@ -400,7 +400,7 @@ async function ensureDbInitialized() {
 }
 
 // Helper function to handle endpoints that need database
-async function withDatabase(handler: (req: any, res: any) => Promise<void>) {
+function withDatabase(handler: (req: any, res: any) => Promise<void>) {
   return async (req: any, res: any) => {
     try {
       await ensureDbInitialized();
