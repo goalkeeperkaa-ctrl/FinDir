@@ -1,19 +1,19 @@
-// Re-export Express app as Vercel handler
-let app: any;
-
-async function initializeApp() {
-  if (app) return app;
-  const serverModule = await import('../server');
-  app = serverModule.default;
-  return app;
-}
-
-export default async function handler(req: any, res: any) {
-  try {
-    const expressApp = await initializeApp();
-    return expressApp(req, res);
-  } catch (error) {
-    console.error('Handler error:', error);
-    res.status(500).json({ error: 'Internal Server Error', details: String(error) });
+export default function handler(req: any, res: any) {
+  // Parse the path to determine which endpoint to call
+  const path = req.url;
+  
+  if (path === '/api/test' || path === '/test') {
+    return res.json({
+      message: "Server is running",
+      timestamp: new Date().toISOString(),
+      environment: "Vercel"
+    });
   }
+  
+  if (path === '/api/health' || path === '/health') {
+    return res.json({ status: "ok", message: "FinDir API is working" });
+  }
+  
+  // Default response
+  res.status(404).json({ error: "Not Found" });
 }
