@@ -20,14 +20,16 @@ export async function initializeDatabase() {
 
     await postgresClient.connect();
 
-    // Create tables if they don't exist
+    // Create tables if they don't exist (separate queries)
     await postgresClient.query(`
       CREATE TABLE IF NOT EXISTS categories (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         type TEXT NOT NULL CHECK(type IN ('income', 'expense'))
       );
+    `);
 
+    await postgresClient.query(`
       CREATE TABLE IF NOT EXISTS transactions (
         id TEXT PRIMARY KEY,
         date TEXT NOT NULL,
