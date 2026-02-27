@@ -3,22 +3,9 @@ let app: any;
 
 async function initializeApp() {
   if (app) return app;
-  try {
-    // Dynamic import of compiled server.js
-    const serverModule = await import('../server.js');
-    app = serverModule.default;
-    return app;
-  } catch (importError) {
-    // Fallback for CommonJS
-    try {
-      const serverModule = await import('../server');
-      app = serverModule.default;
-      return app;
-    } catch (e) {
-      console.error('Failed to import server:', e);
-      throw importError;
-    }
-  }
+  const serverModule = await import('../server');
+  app = serverModule.default;
+  return app;
 }
 
 export default async function handler(req: any, res: any) {
