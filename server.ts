@@ -1,7 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { initializeDatabase, query, queryOne, execute } from "./server/db-manager";
-import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
@@ -178,12 +178,12 @@ app.get("/api/stats", async (req, res) => {
 app.post("/api/categorize", async (req, res) => {
   const { description, amount } = req.body;
 
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "Gemini API Key not configured" });
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: "OpenAI API Key not configured" });
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     // Fetch available categories
     const categoriesResult = await query('SELECT id, name, type FROM categories');
@@ -203,12 +203,12 @@ app.post("/api/categorize", async (req, res) => {
       If no category fits well, return the ID for "Сервисы и ПО" (or similar general expense) if it's an expense, or "Выручка" if it's income.
     `;
 
-    const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash-latest",
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    const result = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: 'user', content: prompt }],
     });
 
-    const categoryId = result.text?.trim();
+    const categoryId = result.choices[0].message.content?.trim();
 
     // Verify the category exists
     const category = categories.find(c => c.id === categoryId);
@@ -496,12 +496,12 @@ app.get("/api/reports/cash-flow", async (req, res) => {
 app.post("/api/chat", async (req, res) => {
   const { message } = req.body;
 
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "Gemini API Key not configured" });
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(500).json({ error: "OpenAI API Key not configured" });
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     // Fetch context data (last 50 transactions summary)
     const txResult = await query(`
@@ -514,22 +514,24 @@ app.post("/api/chat", async (req, res) => {
 
     const context = JSON.stringify(transactions);
 
-    const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash-latest",
-      contents: [{ role: 'user', parts: [{ text: message }] }],
-      config: {
-        systemInstruction: `Ты — 'AFM', ИИ-ассистент финансовой платформы.
+    const systemPrompt = `Ты — 'AFM', ИИ-ассистент финансовой платформы.
         У тебя есть доступ к последним финансовым транзакциям пользователя в формате JSON.
         Отвечай на вопросы о финансах, тратах и прибыльности.
         Твой тон: профессиональный, лаконичный, футуристичный.
         Язык ответов: Русский.
         Валюта: Рубли (₽).
 
-        Контекст данных: ${context}`
-      }
+        Контекст данных: ${context}`;
+
+    const result = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: message }
+      ],
     });
 
-    const response = result.text;
+    const response = result.choices[0].message.content;
     res.json({ response });
   } catch (error) {
     console.error("AI Error:", error);
