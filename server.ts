@@ -10,18 +10,33 @@ const PORT = parseInt(process.env.PORT || '3000');
 app.use(express.json());
 
 // Health check endpoint
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    dbInitialized: dbInitialized,
-    dbError: dbError ? String(dbError) : null,
-    environment: {
-      NODE_ENV: process.env.NODE_ENV,
-      VERCEL: process.env.VERCEL ? "yes" : "no",
-      DATABASE_URL_SET: process.env.DATABASE_URL ? "yes" : "no"
-    }
-  });
+app.get("/api/health", async (req, res) => {
+  try {
+    await ensureDbInitialized();
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      database: "connected",
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: process.env.VERCEL ? "yes" : "no",
+        DATABASE_URL_SET: process.env.DATABASE_URL ? "yes" : "no",
+        DATABASE_TYPE: process.env.DATABASE_URL ? "postgresql" : "sqlite"
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "unhealthy",
+      timestamp: new Date().toISOString(),
+      database: "error",
+      error: String(error),
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        VERCEL: process.env.VERCEL ? "yes" : "no",
+        DATABASE_URL_SET: process.env.DATABASE_URL ? "yes" : "no"
+      }
+    });
+  }
 });
 
 // --- API Routes ---
@@ -351,34 +366,42 @@ app.post("/api/chat", async (req, res) => {
 });
 
 
-// Initialize database at startup
+// Database initialization state
 let dbInitialized = false;
+let dbInitPromise: Promise<void> | null = null;
 let dbError: any = null;
 
-async function initDb() {
-  try {
-    await initializeDatabase();
-    dbInitialized = true;
-    console.log("✅ Database initialized successfully");
-  } catch (error) {
-    dbError = error;
-    console.error("❌ Database initialization failed:", error);
-    // Don't exit - let the function continue and handle errors per-request
-  }
+async function ensureDbInitialized() {
+  if (dbInitialized) return;
+  if (dbInitPromise) return dbInitPromise; // Return existing promise if already initializing
+
+  dbInitPromise = (async () => {
+    try {
+      await initializeDatabase();
+      dbInitialized = true;
+      console.log("✅ Database initialized successfully");
+    } catch (error) {
+      dbError = error;
+      console.error("❌ Database initialization failed:", error);
+      throw error;
+    }
+  })();
+
+  return dbInitPromise;
 }
 
-// Start initialization immediately
-initDb();
-
-// Add middleware to check DB status
-app.use((req, res, next) => {
-  if (!dbInitialized && dbError) {
-    console.error("Request made before DB ready, error was:", dbError);
+// Initialize database on first request
+app.use(async (req, res, next) => {
+  try {
+    await ensureDbInitialized();
+    next();
+  } catch (error) {
+    console.error("Database initialization error:", error);
+    res.status(500).json({ error: "Database not available", details: String(error) });
   }
-  next();
 });
 
-// Initialize database and start server
+// Start server (for local development only)
 async function start() {
   try {
     // Vite Middleware (only in non-production)
@@ -390,6 +413,7 @@ async function start() {
       app.use(vite.middlewares);
     }
 
+    // Only start listening if not on Vercel (Vercel handles the HTTP server)
     if (!process.env.VERCEL) {
       const server = app.listen(PORT, "0.0.0.0", () => {
         console.log(`Server running on http://localhost:${PORT}`);
@@ -402,16 +426,23 @@ async function start() {
           process.exit(0);
         });
       });
+    } else {
+      console.log("Running on Vercel serverless environment");
     }
   } catch (error) {
     console.error("Failed to start server:", error);
-    // Don't exit on Vercel - just log the error
     if (!process.env.VERCEL) {
       process.exit(1);
     }
   }
 }
 
-start();
+// Start async initialization
+start().catch(error => {
+  console.error("Unhandled error in start():", error);
+  if (!process.env.VERCEL) {
+    process.exit(1);
+  }
+});
 
 export default app;
