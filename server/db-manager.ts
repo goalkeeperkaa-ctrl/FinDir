@@ -129,22 +129,27 @@ export async function initializeDatabase() {
 
 // Unified query interface
 export async function query(sql: string, params?: any[]): Promise<{ rows: any[] }> {
-  if (dbType === 'postgresql') {
-    if (!postgresClient) throw new Error('PostgreSQL client not initialized');
-    const result = await postgresClient.query(sql, params);
-    return { rows: result.rows };
-  } else {
-    if (!sqliteDb) throw new Error('SQLite database not initialized');
-    // Convert PostgreSQL-style $1, $2 params to SQLite-style ?
-    let sqliteSql = sql;
-    if (params && params.length > 0) {
-      params.forEach((_, i) => {
-        sqliteSql = sqliteSql.replace(`$${i + 1}`, '?');
-      });
+  try {
+    if (dbType === 'postgresql') {
+      if (!postgresClient) throw new Error('PostgreSQL client not initialized');
+      const result = await postgresClient.query(sql, params);
+      return { rows: result.rows };
+    } else {
+      if (!sqliteDb) throw new Error('SQLite database not initialized');
+      // Convert PostgreSQL-style $1, $2 params to SQLite-style ?
+      let sqliteSql = sql;
+      if (params && params.length > 0) {
+        params.forEach((_, i) => {
+          sqliteSql = sqliteSql.replace(`$${i + 1}`, '?');
+        });
+      }
+      const stmt = sqliteDb.prepare(sqliteSql);
+      const rows = params ? stmt.all(...params) : stmt.all();
+      return { rows: rows as any[] };
     }
-    const stmt = sqliteDb.prepare(sqliteSql);
-    const rows = params ? stmt.all(...params) : stmt.all();
-    return { rows: rows as any[] };
+  } catch (error) {
+    console.error(`Query failed. DB Type: ${dbType}, SQL: ${sql.substring(0, 100)}`, error);
+    throw error;
   }
 }
 

@@ -9,6 +9,21 @@ const PORT = parseInt(process.env.PORT || '3000');
 
 app.use(express.json());
 
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    dbInitialized: dbInitialized,
+    dbError: dbError ? String(dbError) : null,
+    environment: {
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL: process.env.VERCEL ? "yes" : "no",
+      DATABASE_URL_SET: process.env.DATABASE_URL ? "yes" : "no"
+    }
+  });
+});
+
 // --- API Routes ---
 
 // Get all transactions
@@ -336,12 +351,37 @@ app.post("/api/chat", async (req, res) => {
 });
 
 
+// Initialize database at startup
+let dbInitialized = false;
+let dbError: any = null;
+
+async function initDb() {
+  try {
+    await initializeDatabase();
+    dbInitialized = true;
+    console.log("✅ Database initialized successfully");
+  } catch (error) {
+    dbError = error;
+    console.error("❌ Database initialization failed:", error);
+    // Don't exit - let the function continue and handle errors per-request
+  }
+}
+
+// Start initialization immediately
+initDb();
+
+// Add middleware to check DB status
+app.use((req, res, next) => {
+  if (!dbInitialized && dbError) {
+    console.error("Request made before DB ready, error was:", dbError);
+  }
+  next();
+});
+
 // Initialize database and start server
 async function start() {
   try {
-    await initializeDatabase();
-
-    // ... Vite Middleware ...
+    // Vite Middleware (only in non-production)
     if (process.env.NODE_ENV !== "production") {
       const vite = await createViteServer({
         server: { middlewareMode: true },
@@ -365,7 +405,10 @@ async function start() {
     }
   } catch (error) {
     console.error("Failed to start server:", error);
-    process.exit(1);
+    // Don't exit on Vercel - just log the error
+    if (!process.env.VERCEL) {
+      process.exit(1);
+    }
   }
 }
 
