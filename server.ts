@@ -9,6 +9,15 @@ const PORT = parseInt(process.env.PORT || '3000');
 
 app.use(express.json());
 
+// Simple test endpoint (no database)
+app.get("/api/test", (req, res) => {
+  res.json({
+    message: "Server is running",
+    timestamp: new Date().toISOString(),
+    environment: process.env.VERCEL ? "Vercel" : "Local"
+  });
+});
+
 // Health check endpoint
 app.get("/api/health", async (req, res) => {
   try {
