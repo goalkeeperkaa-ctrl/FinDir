@@ -1,5 +1,3 @@
-import app from '../server';
+const app = require('../server.js').default || require('../server.js');
 
-// Vercel expects a handler that takes (req, res)
-// Express app IS a handler that takes (req, res)
-export default app as any;
+export default app;
