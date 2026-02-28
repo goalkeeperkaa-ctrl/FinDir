@@ -975,8 +975,8 @@ function Reports() {
                   formatter={(value: number) => formatCurrency(value)}
                 />
                 <Legend />
-                <Bar dataKey="inflows" name="Приходы" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="outflows" name="Уходы" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="inflow" name="Приходы" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="outflow" name="Уходы" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -998,12 +998,12 @@ function Reports() {
                 {cashFlowData.map((row: any, i: number) => (
                   <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition">
                     <td className="py-4 text-white">{row.month}</td>
-                    <td className="py-4 text-right font-mono text-emerald-400">{formatCurrency(row.inflows)}</td>
-                    <td className="py-4 text-right font-mono text-red-400">{formatCurrency(row.outflows)}</td>
-                    <td className={cn("py-4 text-right font-mono font-bold", row.netFlow > 0 ? "text-emerald-400" : "text-red-400")}>
-                      {formatCurrency(row.netFlow)}
+                    <td className="py-4 text-right font-mono text-emerald-400">{formatCurrency(row.inflow)}</td>
+                    <td className="py-4 text-right font-mono text-red-400">{formatCurrency(row.outflow)}</td>
+                    <td className={cn("py-4 text-right font-mono font-bold", row.net > 0 ? "text-emerald-400" : "text-red-400")}>
+                      {formatCurrency(row.net)}
                     </td>
-                    <td className="py-4 text-right text-zinc-400">{row.income_count + row.expense_count}</td>
+                    <td className="py-4 text-right text-zinc-400">-</td>
                   </tr>
                 ))}
               </tbody>
@@ -1083,8 +1083,8 @@ function Reports() {
                   formatter={(value: number) => formatCurrency(value)}
                 />
                 <Legend />
-                <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} name="Выручка" />
-                <Line type="monotone" dataKey="expense" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} name="Расходы" />
+                <Line type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} dot={{ r: 4 }} name="Выручка" />
+                <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} name="Расходы" />
               </LineChart>
             </ResponsiveContainer>
           </div>
