@@ -233,12 +233,31 @@ app.get("/api/unit-economics", (req, res) => {
 // Import CSV
 app.post("/api/import", (req, res) => {
   const { transactions: txs } = req.body;
+
   const imported = txs.map((t: any) => {
     const id = uuidv4();
-    const tx = { ...t, id };
+
+    // Find category by name if provided, otherwise use default
+    const category = t.category_name
+      ? categories.find(c => c.name === t.category_name) || categories[0]
+      : categories[0];
+
+    const tx = {
+      id,
+      date: t.date || new Date().toISOString().split('T')[0],
+      amount: parseFloat(t.amount) || 0,
+      description: t.description || 'Импортированная транзакция',
+      category_id: category.id,
+      category_name: category.name,
+      category_type: category.type,
+      status: 'completed',
+      ...t // Preserve any additional fields
+    };
+
     transactions.unshift(tx);
     return tx;
   });
+
   res.json({ imported, count: imported.length });
 });
 
