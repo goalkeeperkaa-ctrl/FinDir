@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Upload, AlertCircle } from 'lucide-react';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 
 interface ImportModalProps {
@@ -26,35 +27,77 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     setError(null);
     setIsLoading(true);
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        if (results.errors && results.errors.length > 0) {
-          setError(`Ошибка при чтении файла: ${results.errors[0].message}`);
-          setIsLoading(false);
-          return;
-        }
+    const fileName = file.name.toLowerCase();
+    const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+    const isCSV = fileName.endsWith('.csv');
 
-        const data = results.data as any[];
-        if (data.length === 0) {
-          setError('Файл пуст или не содержит данных');
-          setIsLoading(false);
-          return;
-        }
+    if (!isExcel && !isCSV) {
+      setError('Поддерживаются только файлы CSV и Excel (.xlsx, .xls)');
+      setIsLoading(false);
+      return;
+    }
 
-        // Get available columns
-        const cols = Object.keys(data[0]).filter(k => k.trim() !== '');
-        setAvailableColumns(cols);
-        setRawData(data);
-        setShowColumnMapping(true);
-        setIsLoading(false);
-      },
-      error: (error) => {
-        setError(`Ошибка парсинга: ${error.message}`);
-        setIsLoading(false);
-      }
-    });
+    if (isExcel) {
+      // Handle Excel files
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = new Uint8Array(event.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          if (jsonData.length === 0) {
+            setError('Файл пуст или не содержит данных');
+            setIsLoading(false);
+            return;
+          }
+
+          // Get available columns
+          const cols = Object.keys(jsonData[0]).filter(k => k.trim() !== '');
+          setAvailableColumns(cols);
+          setRawData(jsonData);
+          setShowColumnMapping(true);
+          setIsLoading(false);
+        } catch (err: any) {
+          setError(`Ошибка при чтении Excel: ${err.message}`);
+          setIsLoading(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // Handle CSV files
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        dynamicTyping: false,
+        complete: (results) => {
+          if (results.errors && results.errors.length > 0) {
+            setError(`Ошибка при чтении CSV: ${results.errors[0].message}`);
+            setIsLoading(false);
+            return;
+          }
+
+          const data = results.data as any[];
+          if (data.length === 0) {
+            setError('Файл пуст или не содержит данных');
+            setIsLoading(false);
+            return;
+          }
+
+          // Get available columns
+          const cols = Object.keys(data[0]).filter(k => k.trim() !== '');
+          setAvailableColumns(cols);
+          setRawData(data);
+          setShowColumnMapping(true);
+          setIsLoading(false);
+        },
+        error: (error) => {
+          setError(`Ошибка парсинга CSV: ${error.message}`);
+          setIsLoading(false);
+        }
+      });
+    }
   };
 
   const normalizeData = () => {

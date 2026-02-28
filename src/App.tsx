@@ -37,6 +37,7 @@ export default function App() {
             {activeTab === 'transactions' && <Transactions key="transactions" />}
             {activeTab === 'scenarios' && <Scenarios key="scenarios" />}
             {activeTab === 'reports' && <Reports key="reports" />}
+            {activeTab === 'settings' && <SettingsTab key="settings" />}
           </AnimatePresence>
         </div>
 
@@ -1152,6 +1153,95 @@ function Reports() {
           )}
         </div>
       )}
+    </motion.div>
+  );
+}
+
+function SettingsTab() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.3 }}
+      className="max-w-4xl"
+    >
+      <div className="mb-8">
+        <h1 className="text-3xl font-light mb-2 text-white">Настройки</h1>
+        <p className="text-zinc-500">Управление параметрами приложения</p>
+      </div>
+
+      <div className="space-y-6">
+        {/* API Keys Section */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+          <h2 className="text-xl font-light mb-4 text-white flex items-center gap-2">
+            <Zap className="w-5 h-5 text-orange-500" />
+            API Интеграции
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-zinc-300 mb-2">OpenAI API Key</label>
+              <div className="bg-black/20 border border-white/10 rounded-lg px-4 py-3 text-zinc-500 text-sm">
+                Настроено на сервере (не отображается в целях безопасности)
+              </div>
+              <p className="text-xs text-zinc-500 mt-2">
+                Используется для AI категоризации и чата. Получить ключ: <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-400">platform.openai.com/api-keys</a>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* About Section */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+          <h2 className="text-xl font-light mb-4 text-white flex items-center gap-2">
+            <Users className="w-5 h-5 text-orange-500" />
+            О приложении
+          </h2>
+
+          <div className="space-y-3 text-sm text-zinc-400">
+            <p><span className="text-white">FinDir</span> - платформа для автоматизированного финансового анализа</p>
+            <p><span className="text-white">Версия:</span> 1.0.0</p>
+            <p><span className="text-white">Технология:</span> React 19, Express, Tailwind CSS</p>
+            <p><span className="text-white">AI помощник:</span> OpenAI</p>
+          </div>
+        </div>
+
+        {/* Feature Status */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
+          <h2 className="text-xl font-light mb-4 text-white flex items-center gap-2">
+            <Activity className="w-5 h-5 text-orange-500" />
+            Статус функций
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+              <span className="text-sm text-zinc-300">Dashboard</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+              <span className="text-sm text-zinc-300">Транзакции</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+              <span className="text-sm text-zinc-300">Отчеты</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+              <span className="text-sm text-zinc-300">CSV/Excel импорт</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+              <span className="text-sm text-zinc-300">AI ассистент</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+              <span className="text-sm text-zinc-300">Сценарии</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </motion.div>
   );
 }

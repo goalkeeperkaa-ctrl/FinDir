@@ -268,9 +268,74 @@ app.post("/api/categorize", (req, res) => {
   res.json({ category_id: cat.id, category_name: cat.name });
 });
 
-// Chat
-app.post("/api/chat", (req, res) => {
-  res.json({ response: "Здравствуйте! Я помощник по финансам FinDir." });
+// Chat with OpenAI
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    if (!message || !message.trim()) {
+      return res.json({ response: "Пожалуйста, напишите сообщение." });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.json({ response: "⚠️ OpenAI API ключ не настроен. Обновите переменные окружения." });
+    }
+
+    // Get transaction context
+    const recentTransactions = transactions.slice(0, 10);
+    const income = transactions
+      .filter((t: any) => t.category_type === 'income')
+      .reduce((s: number, t: any) => s + t.amount, 0);
+    const expenses = transactions
+      .filter((t: any) => t.category_type === 'expense')
+      .reduce((s: number, t: any) => s + t.amount, 0);
+
+    const systemPrompt = `Ты финансовый помощник FinDir. Помогаешь анализировать финансовые данные и даёшь рекомендации.
+
+Текущие финансовые данные:
+- Всего доходов: ${income.toLocaleString('ru-RU')} руб.
+- Всего расходов: ${expenses.toLocaleString('ru-RU')} руб.
+- Чистая прибыль: ${(income - expenses).toLocaleString('ru-RU')} руб.
+
+Недавние транзакции:
+${recentTransactions.map((t: any) => `- ${t.date}: ${t.description} (${t.amount.toLocaleString('ru-RU')} руб., ${t.category_type === 'income' ? 'доход' : 'расход'})`).join('\n')}
+
+Отвечай кратко и по делу. Дай практические советы по управлению финансами.`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      console.error('OpenAI API error:', data.error);
+      return res.json({
+        response: `❌ Ошибка OpenAI: ${data.error.message || 'Неизвестная ошибка'}`
+      });
+    }
+
+    const aiResponse = data.choices?.[0]?.message?.content || 'Не удалось получить ответ';
+
+    res.json({ response: aiResponse });
+  } catch (error: any) {
+    console.error('Chat error:', error);
+    res.json({ response: `Ошибка соединения: ${error.message}` });
+  }
 });
 
 export default app;
