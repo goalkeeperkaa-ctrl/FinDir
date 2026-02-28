@@ -15,8 +15,7 @@ try {
   console.warn('Database manager not available, using fallback storage');
 }
 
-// Fallback in-memory storage
-let fallbackTransactions: any[] = [];
+// Fallback in-memory storage with sample data
 let fallbackCategories: any[] = [
   { id: "cat_1", name: "Выручка", type: "income" },
   { id: "cat_2", name: "Фонд оплаты труда", type: "expense" },
@@ -26,17 +25,64 @@ let fallbackCategories: any[] = [
   { id: "cat_6", name: "Налоги", type: "expense" },
 ];
 
+// Initialize fallback transactions with sample data
+function initializeFallbackData() {
+  if (fallbackTransactions.length === 0) {
+    const now = new Date();
+    const sampleTransactions = [];
+
+    // Generate 50 sample transactions like db-manager does
+    for (let i = 0; i < 50; i++) {
+      const isIncome = Math.random() > 0.7;
+      const amount = isIncome
+        ? Math.floor(Math.random() * 1000000) + 500000
+        : Math.floor(Math.random() * 200000) + 10000;
+      const date = new Date(now.getTime() - Math.floor(Math.random() * 90 * 24 * 60 * 60 * 1000))
+        .toISOString()
+        .split('T')[0];
+      const categoryId = isIncome ? 'cat_1' : ['cat_2', 'cat_3', 'cat_4', 'cat_5', 'cat_6'][Math.floor(Math.random() * 5)];
+      const category = fallbackCategories.find(c => c.id === categoryId)!;
+      const desc = isIncome ? `Оплата от клиента #${i}` : `Оплата поставщику #${i}`;
+
+      sampleTransactions.push({
+        id: `tx_${i}`,
+        date,
+        amount,
+        description: desc,
+        category_id: categoryId,
+        category_name: category.name,
+        category_type: category.type,
+        status: 'completed'
+      });
+    }
+
+    fallbackTransactions = sampleTransactions;
+  }
+}
+
+let fallbackTransactions: any[] = [];
+
 let dbInitialized = false;
 
+// Initialize fallback data at module startup
+initializeFallbackData();
+console.log(`📊 Fallback storage initialized with ${fallbackTransactions.length} sample transactions`);
+
 async function ensureDbInitialized() {
+  // Ensure fallback data is always available
+  if (fallbackTransactions.length === 0) {
+    initializeFallbackData();
+  }
+
   if (!dbInitialized && useDatabase && dbManager) {
     try {
       await dbManager.initializeDatabase();
       dbInitialized = true;
-      console.log('Database initialized');
+      console.log('✅ Database initialized successfully');
     } catch (e: any) {
-      console.error('Database initialization failed:', e);
+      console.error('❌ Database initialization failed:', e.message);
       useDatabase = false;
+      console.log('💾 Falling back to in-memory storage');
     }
   }
 }
@@ -50,17 +96,20 @@ async function getTransactions() {
       const categoriesResult = await dbManager.query('SELECT * FROM categories');
       const categoryMap = Object.fromEntries(categoriesResult.rows.map((c: any) => [c.id, c]));
 
-      return result.rows.map((t: any) => ({
+      const transactions = result.rows.map((t: any) => ({
         ...t,
         category_name: categoryMap[t.category_id]?.name || 'Unknown',
         category_type: categoryMap[t.category_id]?.type || 'expense'
       }));
+      console.log(`📦 Fetched ${transactions.length} transactions from database`);
+      return transactions;
     }
   } catch (e) {
-    console.error('Database query failed:', e);
+    console.error('❌ Database query failed:', e);
   }
 
   // Fallback to memory
+  console.log(`💾 Using fallback storage with ${fallbackTransactions.length} transactions`);
   return fallbackTransactions;
 }
 
@@ -281,6 +330,7 @@ app.post("/api/categories", async (req, res) => {
 app.get("/api/stats", async (req, res) => {
   try {
     const transactions = await getTransactions();
+    console.log(`📈 /api/stats: Processing ${transactions.length} transactions`);
 
     const income = transactions
       .filter((t: any) => t.category_type === 'income')
@@ -314,16 +364,19 @@ app.get("/api/stats", async (req, res) => {
     });
     const expenseDistribution = Object.entries(expensesByCategory).map(([name, value]) => ({ name, value }));
 
-    res.json({
+    const statsResponse = {
       totalIncome: income,
       totalExpenses: expenses,
       netProfit: income - expenses,
       chartData,
       expenseDistribution,
       budgetProgress: []
-    });
+    };
+
+    console.log(`✅ Stats: income=${income}, expenses=${expenses}, chartPoints=${chartData.length}`);
+    res.json(statsResponse);
   } catch (error: any) {
-    console.error('Stats error:', error);
+    console.error('❌ Stats error:', error);
     res.status(500).json({ error: error.message });
   }
 });
