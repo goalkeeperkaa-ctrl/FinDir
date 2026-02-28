@@ -131,6 +131,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
   const submitImport = async (transactions: any[]) => {
     try {
+      setIsLoading(true);
       const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -139,21 +140,25 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
       if (!res.ok) {
         const err = await res.json();
-        setError(err.error);
+        setError(`Ошибка API: ${err.error || 'Неизвестная ошибка'}`);
         setIsLoading(false);
         return;
       }
 
       const result = await res.json();
       setImportResult(result);
+      setIsLoading(false);
 
-      if (result.imported > 0) {
+      if (result.count && result.count > 0) {
         setTimeout(() => {
           onSuccess();
-        }, 2000);
+        }, 1500);
+      } else {
+        setError('Не удалось импортировать транзакции. Проверьте формат данных.');
       }
-    } catch (e) {
-      setError(`Ошибка загрузки: ${String(e)}`);
+    } catch (e: any) {
+      console.error('Import error:', e);
+      setError(`Ошибка загрузки: ${e.message || String(e)}`);
       setIsLoading(false);
     }
   };
@@ -334,14 +339,14 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
               <div className="text-emerald-400 text-2xl">✓</div>
             </div>
             <div>
-              <p className="text-white font-medium text-lg mb-2">Импорт завершен!</p>
+              <p className="text-white font-medium text-lg mb-2">✅ Импорт успешно завершен!</p>
               <p className="text-zinc-400 text-sm">
-                Загружено: <span className="font-mono text-emerald-400">{importResult.imported}</span> из{' '}
-                <span className="font-mono">{importResult.total}</span> транзакций
+                Загружено: <span className="font-mono text-emerald-400 font-bold">{importResult.count || 0}</span> {' '}
+                транзакц{importResult.count === 1 ? 'ия' : importResult.count % 10 === 1 ? 'ия' : 'ий'}
               </p>
               {importResult.errors && importResult.errors.length > 0 && (
                 <div className="mt-4 text-left bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
-                  <p className="text-yellow-400 text-xs font-medium mb-2">Ошибки при загрузке:</p>
+                  <p className="text-yellow-400 text-xs font-medium mb-2">⚠️ Ошибки при загрузке:</p>
                   <ul className="text-yellow-300 text-xs space-y-1">
                     {importResult.errors.slice(0, 3).map((err: string, i: number) => (
                       <li key={i}>• {err}</li>
