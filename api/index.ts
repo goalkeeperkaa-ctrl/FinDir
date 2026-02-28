@@ -275,9 +275,26 @@ app.get("/api/test", (req, res) => {
   res.json({ message: "FinDir API is running" });
 });
 
-// Health
-app.get("/api/health", (req, res) => {
-  res.json({ status: "healthy", database: "connected" });
+// Health & Debug
+app.get("/api/health", async (req, res) => {
+  try {
+    await ensureDbInitialized();
+    const transactions = await getTransactions();
+
+    res.json({
+      status: "healthy",
+      database: useDatabase && dbManager ? "PostgreSQL" : "Fallback (Memory)",
+      transactionCount: transactions.length,
+      hasData: transactions.length > 0,
+      sampleData: transactions.slice(0, 2)
+    });
+  } catch (e: any) {
+    res.json({
+      status: "error",
+      error: e.message,
+      database: useDatabase && dbManager ? "PostgreSQL" : "Fallback (Memory)"
+    });
+  }
 });
 
 // Get transactions
