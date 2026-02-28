@@ -6,8 +6,11 @@ app.use(express.json());
 
 // In-memory storage for demo
 let transactions: any[] = [
-  { id: uuidv4(), date: "2026-02-28", amount: 10000, description: "Monthly revenue", category_id: "1", category_name: "Выручка", category_type: "income" },
-  { id: uuidv4(), date: "2026-02-27", amount: 2000, description: "Team salary", category_id: "2", category_name: "ФОТ", category_type: "expense" },
+  { id: uuidv4(), date: "2026-02-28", amount: 10000, description: "Monthly revenue", category_id: "1", category_name: "Выручка", category_type: "income", status: "completed" },
+  { id: uuidv4(), date: "2026-02-27", amount: 2000, description: "Team salary", category_id: "2", category_name: "ФОТ", category_type: "expense", status: "completed" },
+  { id: uuidv4(), date: "2026-26", amount: 500, description: "Software services", category_id: "3", category_name: "Сервисы и ПО", category_type: "expense", status: "completed" },
+  { id: uuidv4(), date: "2026-25", amount: 3000, description: "Marketing campaign", category_id: "4", category_name: "Маркетинг", category_type: "expense", status: "completed" },
+  { id: uuidv4(), date: "2026-24", amount: 8000, description: "Monthly revenue", category_id: "1", category_name: "Выручка", category_type: "income", status: "completed" },
 ];
 
 let categories: any[] = [
@@ -46,7 +49,8 @@ app.post("/api/transactions", (req, res) => {
     description,
     category_id,
     category_name: category?.name,
-    category_type: category?.type
+    category_type: category?.type,
+    status: "completed"
   };
   transactions.unshift(newTx);
   res.json(newTx);
@@ -73,30 +77,96 @@ app.post("/api/categories", (req, res) => {
 app.get("/api/stats", (req, res) => {
   const income = transactions.filter((t: any) => t.category_type === 'income').reduce((s: number, t: any) => s + t.amount, 0);
   const expenses = transactions.filter((t: any) => t.category_type === 'expense').reduce((s: number, t: any) => s + t.amount, 0);
+
+  // Group transactions by date for chart data
+  const dailyData: any = {};
+  transactions.forEach((t: any) => {
+    if (!dailyData[t.date]) {
+      dailyData[t.date] = { date: t.date, income: 0, expenses: 0 };
+    }
+    if (t.category_type === 'income') {
+      dailyData[t.date].income += t.amount;
+    } else {
+      dailyData[t.date].expenses += t.amount;
+    }
+  });
+  const chartData = Object.values(dailyData).sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+  // Expense distribution by category
+  const expensesByCategory: any = {};
+  transactions.filter((t: any) => t.category_type === 'expense').forEach((t: any) => {
+    if (!expensesByCategory[t.category_name]) {
+      expensesByCategory[t.category_name] = 0;
+    }
+    expensesByCategory[t.category_name] += t.amount;
+  });
+  const expenseDistribution = Object.entries(expensesByCategory).map(([name, value]) => ({ name, value }));
+
   res.json({
-    monthlyRevenue: income,
-    monthlyExpenses: expenses,
     totalIncome: income,
     totalExpenses: expenses,
-    profit: income - expenses
+    netProfit: income - expenses,
+    chartData,
+    expenseDistribution,
+    budgetProgress: []
   });
 });
 
 // P&L
 app.get("/api/reports/p-l", (req, res) => {
+  const totalIncome = transactions.filter((t: any) => t.category_type === 'income').reduce((s: number, t: any) => s + t.amount, 0);
+  const totalExpenses = transactions.filter((t: any) => t.category_type === 'expense').reduce((s: number, t: any) => s + t.amount, 0);
+  const netProfit = totalIncome - totalExpenses;
+  const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
+
   const byCategory: any = {};
   transactions.forEach((t: any) => {
     if (!byCategory[t.category_name]) {
-      byCategory[t.category_name] = { name: t.category_name, amount: 0, type: t.category_type };
+      byCategory[t.category_name] = { category: t.category_name, total_amount: 0, type: t.category_type };
     }
-    byCategory[t.category_name].amount += t.amount;
+    byCategory[t.category_name].total_amount += t.amount;
   });
-  res.json(Object.values(byCategory));
+
+  const incomeRows = Object.values(byCategory).filter((c: any) => c.type === 'income');
+  const expenseRows = Object.values(byCategory).filter((c: any) => c.type === 'expense');
+
+  res.json({
+    totalIncome,
+    totalExpenses,
+    netProfit,
+    profitMargin,
+    income: incomeRows,
+    expenses: expenseRows
+  });
 });
 
 // Cash flow
 app.get("/api/reports/cash-flow", (req, res) => {
-  res.json([]);
+  const monthlyData: any = {};
+
+  transactions.forEach((t: any) => {
+    const date = new Date(t.date);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+    if (!monthlyData[monthKey]) {
+      monthlyData[monthKey] = { month: monthKey, inflow: 0, outflow: 0 };
+    }
+
+    if (t.category_type === 'income') {
+      monthlyData[monthKey].inflow += t.amount;
+    } else {
+      monthlyData[monthKey].outflow += t.amount;
+    }
+  });
+
+  const cashFlow = Object.values(monthlyData)
+    .sort((a: any, b: any) => a.month.localeCompare(b.month))
+    .map((m: any) => ({
+      ...m,
+      net: m.inflow - m.outflow
+    }));
+
+  res.json(cashFlow);
 });
 
 // Anomalies
@@ -106,13 +176,57 @@ app.get("/api/anomalies", (req, res) => {
 
 // Unit economics
 app.get("/api/unit-economics", (req, res) => {
-  const income = transactions.filter((t: any) => t.category_type === 'income').reduce((s: number, t: any) => s + t.amount, 0);
+  const revenue = transactions.filter((t: any) => t.category_type === 'income').reduce((s: number, t: any) => s + t.amount, 0);
   const expenses = transactions.filter((t: any) => t.category_type === 'expense').reduce((s: number, t: any) => s + t.amount, 0);
+  const profit = revenue - expenses;
+  const margin_percent = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : 0;
+
+  // Get monthly data for trends
+  const monthlyData: any = {};
+  transactions.forEach((t: any) => {
+    const date = new Date(t.date);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+    if (!monthlyData[monthKey]) {
+      monthlyData[monthKey] = { month: monthKey, revenue: 0, expenses: 0 };
+    }
+
+    if (t.category_type === 'income') {
+      monthlyData[monthKey].revenue += t.amount;
+    } else {
+      monthlyData[monthKey].expenses += t.amount;
+    }
+  });
+
+  const sortedMonths = Object.values(monthlyData)
+    .sort((a: any, b: any) => a.month.localeCompare(b.month));
+
+  // Calculate month-over-month growth
+  let revenue_mom = 0, expense_mom = 0;
+  if (sortedMonths.length >= 2) {
+    const last = sortedMonths[sortedMonths.length - 1] as any;
+    const prev = sortedMonths[sortedMonths.length - 2] as any;
+    revenue_mom = prev.revenue > 0 ? (((last.revenue - prev.revenue) / prev.revenue) * 100).toFixed(2) as any : 0;
+    expense_mom = prev.expenses > 0 ? (((last.expenses - prev.expenses) / prev.expenses) * 100).toFixed(2) as any : 0;
+  }
+
+  // Burn rate and runway (simplified)
+  const monthlyBurnRate = expenses / (sortedMonths.length || 1);
+  const cash_reserve = 100000; // Example
+  const runway_months = monthlyBurnRate > 0 ? Math.round(cash_reserve / monthlyBurnRate) : 0;
+
   res.json({
-    revenue: income,
-    expenses: expenses,
-    profit: income - expenses,
-    margin: income > 0 ? ((income - expenses) / income * 100).toFixed(2) : 0
+    revenue,
+    expenses,
+    profit,
+    margin_percent,
+    burn_rate: Math.round(monthlyBurnRate),
+    runway_months,
+    growth: {
+      revenue_mom,
+      expense_mom
+    },
+    monthly_data: sortedMonths
   });
 });
 
