@@ -53,12 +53,6 @@ async function loadDbManager() {
       const imported = await import("../server/db-manager.js");
       dbManager = imported;
 
-      // Check if this is a default export
-      if (imported.default) {
-        dbManager = imported.default;
-        log(`  - Found default export`);
-      }
-
       // Verify it has the required methods
       if (!dbManager.initializeDatabase && !dbManager.query) {
         log(`  - WARNING: Missing methods. Available properties: ${Object.keys(dbManager).join(', ')}`);
