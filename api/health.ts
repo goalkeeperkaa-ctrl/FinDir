@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 let dbManager: any = null;
 let useDatabase = false;
 let loadingDiagnostics: string[] = [];
+let dbManagerLoadPromise: Promise<void>;
 
 async function loadDbManager() {
   const log = (msg: string) => {
@@ -39,7 +40,20 @@ async function loadDbManager() {
     // Попытка 3: динамический импорт JS
     try {
       log('Попытка 3: import db-manager.js');
-      dbManager = await import("../server/db-manager.js");
+      const imported = await import("../server/db-manager.js");
+      dbManager = imported;
+
+      // Check if this is a default export
+      if (imported.default) {
+        dbManager = imported.default;
+        log(`  - Found default export`);
+      }
+
+      // Verify it has the required methods
+      if (!dbManager.initializeDatabase && !dbManager.query) {
+        log(`  - WARNING: Missing methods. Available properties: ${Object.keys(dbManager).join(', ')}`);
+      }
+
       useDatabase = true;
       log('✅ Загружен db-manager.js');
       return;
@@ -56,7 +70,7 @@ async function loadDbManager() {
 }
 
 // Инициализируем при импорте модуля
-loadDbManager();
+dbManagerLoadPromise = loadDbManager();
 
 // Fallback categories
 const fallbackCategories = [
@@ -106,13 +120,29 @@ function initializeFallbackData() {
 let dbInitialized = false;
 
 async function ensureDbInitialized() {
+  // Ensure database manager loading is complete
+  if (dbManagerLoadPromise) {
+    await dbManagerLoadPromise;
+  }
+
   initializeFallbackData();
 
   if (!dbInitialized && useDatabase && dbManager) {
     try {
+      console.log('📊 Initializing database...');
+      loadingDiagnostics.push('📊 Initializing database...');
+
+      if (!dbManager.initializeDatabase) {
+        throw new Error('initializeDatabase method not found in dbManager');
+      }
+
       await dbManager.initializeDatabase();
       dbInitialized = true;
+      console.log('✅ Database initialized successfully');
+      loadingDiagnostics.push('✅ Database initialized successfully');
     } catch (e: any) {
+      console.error('❌ Database initialization failed:', e.message);
+      loadingDiagnostics.push(`❌ Database initialization failed: ${e.message}`);
       useDatabase = false;
     }
   }
@@ -143,6 +173,11 @@ async function getTransactions() {
 
 export default async function handler(req: any, res: any) {
   try {
+    // Ensure database manager loading is complete
+    if (dbManagerLoadPromise) {
+      await dbManagerLoadPromise;
+    }
+
     const transactions = await getTransactions();
 
     res.status(200).json({
