@@ -8,12 +8,31 @@ app.use(express.json());
 let dbManager: any = null;
 let useDatabase = false;
 
-try {
-  dbManager = require("../server/db-manager");
-  useDatabase = true;
-} catch (e) {
-  console.warn('Database manager not available, using fallback storage');
+async function loadDbManager() {
+  try {
+    // Try to import the compiled JS version first (for Vercel/production)
+    try {
+      dbManager = await import("../server/db-manager.js");
+      useDatabase = true;
+      console.log('✅ Loaded db-manager from .js');
+      return;
+    } catch (e: any) {
+      console.log('Trying alternative import path...');
+    }
+
+    // Fallback to TS version (for local development)
+    dbManager = require("../server/db-manager");
+    useDatabase = true;
+    console.log('✅ Loaded db-manager from .ts');
+  } catch (e: any) {
+    console.warn('❌ Database manager not available:', e.message);
+    console.warn('Using fallback storage instead');
+    useDatabase = false;
+  }
 }
+
+// Initialize db manager
+loadDbManager();
 
 // Fallback in-memory storage with sample data
 let fallbackCategories: any[] = [
