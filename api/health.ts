@@ -1,15 +1,56 @@
 import { v4 as uuidv4 } from 'uuid';
 
-// Try to import database manager
+// Try to import database manager with detailed logging
 let dbManager: any = null;
 let useDatabase = false;
 
-try {
-  dbManager = require("../server/db-manager");
-  useDatabase = true;
-} catch (e) {
-  console.warn('Database manager not available');
+async function loadDbManager() {
+  console.log('🔍 Attempting to load database manager...');
+
+  try {
+    // Попытка 1: динамический импорт TS
+    try {
+      console.log('Попытка 1: import db-manager.ts');
+      dbManager = await import("../server/db-manager");
+      useDatabase = true;
+      console.log('✅ Загружен db-manager.ts');
+      return;
+    } catch (e: any) {
+      console.log('❌ Не удалось загрузить .ts:', e.message);
+    }
+
+    // Попытка 2: require TS
+    try {
+      console.log('Попытка 2: require db-manager');
+      dbManager = require("../server/db-manager");
+      useDatabase = true;
+      console.log('✅ Загружен db-manager через require');
+      return;
+    } catch (e: any) {
+      console.log('❌ Не удалось загрузить require:', e.message);
+    }
+
+    // Попытка 3: динамический импорт JS
+    try {
+      console.log('Попытка 3: import db-manager.js');
+      dbManager = await import("../server/db-manager.js");
+      useDatabase = true;
+      console.log('✅ Загружен db-manager.js');
+      return;
+    } catch (e: any) {
+      console.log('❌ Не удалось загрузить .js:', e.message);
+    }
+
+    console.warn('⚠️ Database manager не доступен, используем fallback');
+    useDatabase = false;
+  } catch (e: any) {
+    console.error('❌ Ошибка при загрузке db-manager:', e);
+    useDatabase = false;
+  }
 }
+
+// Инициализируем при импорте модуля
+loadDbManager();
 
 // Fallback categories
 const fallbackCategories = [
