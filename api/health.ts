@@ -3,48 +3,54 @@ import { v4 as uuidv4 } from 'uuid';
 // Try to import database manager with detailed logging
 let dbManager: any = null;
 let useDatabase = false;
+let loadingDiagnostics: string[] = [];
 
 async function loadDbManager() {
-  console.log('🔍 Attempting to load database manager...');
+  const log = (msg: string) => {
+    console.log(msg);
+    loadingDiagnostics.push(msg);
+  };
+
+  log('🔍 Attempting to load database manager...');
 
   try {
     // Попытка 1: динамический импорт TS
     try {
-      console.log('Попытка 1: import db-manager.ts');
+      log('Попытка 1: import db-manager.ts');
       dbManager = await import("../server/db-manager");
       useDatabase = true;
-      console.log('✅ Загружен db-manager.ts');
+      log('✅ Загружен db-manager.ts');
       return;
     } catch (e: any) {
-      console.log('❌ Не удалось загрузить .ts:', e.message);
+      log(`❌ Не удалось загрузить .ts: ${e.message}`);
     }
 
     // Попытка 2: require TS
     try {
-      console.log('Попытка 2: require db-manager');
+      log('Попытка 2: require db-manager');
       dbManager = require("../server/db-manager");
       useDatabase = true;
-      console.log('✅ Загружен db-manager через require');
+      log('✅ Загружен db-manager через require');
       return;
     } catch (e: any) {
-      console.log('❌ Не удалось загрузить require:', e.message);
+      log(`❌ Не удалось загрузить require: ${e.message}`);
     }
 
     // Попытка 3: динамический импорт JS
     try {
-      console.log('Попытка 3: import db-manager.js');
+      log('Попытка 3: import db-manager.js');
       dbManager = await import("../server/db-manager.js");
       useDatabase = true;
-      console.log('✅ Загружен db-manager.js');
+      log('✅ Загружен db-manager.js');
       return;
     } catch (e: any) {
-      console.log('❌ Не удалось загрузить .js:', e.message);
+      log(`❌ Не удалось загрузить .js: ${e.message}`);
     }
 
-    console.warn('⚠️ Database manager не доступен, используем fallback');
+    log('⚠️ Database manager не доступен, используем fallback');
     useDatabase = false;
   } catch (e: any) {
-    console.error('❌ Ошибка при загрузке db-manager:', e);
+    log(`❌ Ошибка при загрузке db-manager: ${e.message}`);
     useDatabase = false;
   }
 }
@@ -144,13 +150,23 @@ export default async function handler(req: any, res: any) {
       database: useDatabase && dbManager ? "PostgreSQL" : "Fallback (Memory)",
       transactionCount: transactions.length,
       hasData: transactions.length > 0,
-      sampleData: transactions.slice(0, 2)
+      sampleData: transactions.slice(0, 2),
+      diagnostics: {
+        loading: loadingDiagnostics,
+        dbManagerLoaded: dbManager !== null,
+        useDatabase: useDatabase
+      }
     });
   } catch (e: any) {
     res.status(200).json({
       status: "error",
       error: e.message,
-      database: useDatabase && dbManager ? "PostgreSQL" : "Fallback (Memory)"
+      database: useDatabase && dbManager ? "PostgreSQL" : "Fallback (Memory)",
+      diagnostics: {
+        loading: loadingDiagnostics,
+        dbManagerLoaded: dbManager !== null,
+        useDatabase: useDatabase
+      }
     });
   }
 }
