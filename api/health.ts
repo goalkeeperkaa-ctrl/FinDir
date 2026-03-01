@@ -14,6 +14,16 @@ async function loadDbManager() {
 
   log('🔍 Attempting to load database manager...');
 
+  // Check if DATABASE_URL is set
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl) {
+    // Mask the password part for security
+    const maskedUrl = dbUrl.replace(/postgres:\/\/[^@]*@/, 'postgres://***:***@');
+    log(`📋 DATABASE_URL found: ${maskedUrl}`);
+  } else {
+    log('⚠️ DATABASE_URL not set in environment');
+  }
+
   try {
     // Попытка 1: динамический импорт TS
     try {
