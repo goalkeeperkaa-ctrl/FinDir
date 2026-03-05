@@ -481,6 +481,22 @@ function Transactions() {
       .finally(() => setDeletingId(null));
   };
 
+  const handleDeleteAllTransactions = () => {
+    if (!confirm('⚠️ Вы точно хотите удалить ВСЕ транзакции? Это невозможно будет отменить!')) {
+      return;
+    }
+    setDeletingId('all');
+    fetch('/api/transactions', { method: 'DELETE' })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setTransactions([]);
+        }
+      })
+      .catch(err => console.error('Delete all error:', err))
+      .finally(() => setDeletingId(null));
+  };
+
   const categories = Array.from(new Set(transactions.map(t => t.category_name)));
 
   const filteredTransactions = transactions.filter(tx => {
@@ -531,6 +547,17 @@ function Transactions() {
               <Upload className="w-4 h-4" />
               Импорт
             </button>
+            {transactions.length > 0 && (
+              <button
+                onClick={handleDeleteAllTransactions}
+                disabled={deletingId === 'all'}
+                className="bg-red-500/10 text-red-400 px-5 py-2 rounded-full text-sm font-medium hover:bg-red-500/20 transition-colors flex items-center gap-2 border border-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Удалить все транзакции"
+              >
+                <Trash2 className="w-4 h-4" />
+                Очистить
+              </button>
+            )}
             <button
               onClick={() => setShowAddModal(true)}
               className="bg-white text-black px-5 py-2 rounded-full text-sm font-medium hover:bg-zinc-200 transition-colors flex items-center gap-2 shadow-[0_0_15px_rgba(255,255,255,0.3)]"

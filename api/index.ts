@@ -200,6 +200,28 @@ async function deleteTransaction(id: string) {
   return { success: false, error: 'Transaction not found' };
 }
 
+async function deleteAllTransactions() {
+  try {
+    await ensureDbInitialized();
+
+    if (useDatabase && dbManager) {
+      const result = await dbManager.query('SELECT COUNT(*) as count FROM transactions');
+      const count = result.rows[0]?.count || 0;
+      await dbManager.execute('DELETE FROM transactions');
+      console.log(`🗑️ Deleted all ${count} transactions from database`);
+      return { success: true, deletedCount: count };
+    }
+  } catch (e) {
+    console.error('Database delete all failed:', e);
+  }
+
+  // Fallback to memory
+  const count = fallbackTransactions.length;
+  fallbackTransactions = [];
+  console.log(`🗑️ Deleted all ${count} transactions from memory`);
+  return { success: true, deletedCount: count };
+}
+
 async function getCategories() {
   try {
     await ensureDbInitialized();
@@ -359,6 +381,17 @@ app.post("/api/transactions", async (req, res) => {
     res.json(newTx);
   } catch (error: any) {
     console.error('Add transaction error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete all transactions
+app.delete("/api/transactions", async (req, res) => {
+  try {
+    const result = await deleteAllTransactions();
+    res.json(result);
+  } catch (error: any) {
+    console.error('Delete all transactions error:', error);
     res.status(500).json({ error: error.message });
   }
 });
