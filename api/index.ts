@@ -816,7 +816,7 @@ app.post("/api/categorize-ai", async (req, res) => {
 // Keyword-based categorization rules (deterministic, no AI needed)
 const CATEGORY_RULES: { keywords: string[]; category: string; type: 'income' | 'expense' }[] = [
   // Income rules (check first!)
-  { keywords: ['доход', 'выручка', 'поступление', 'платеж от', 'оплата от', 'расчет от', 'платеж клиента', 'продажа', 'реализация', 'вознаграждение', 'возврат от', 'приход'], category: 'Выручка', type: 'income' },
+  { keywords: ['доход', 'выручка', 'поступление', 'платеж от', 'оплата от', 'расчет от', 'платеж клиента', 'продажа', 'реализация', 'вознаграждение', 'возврат от', 'приход', 'авансовый', 'авансов'], category: 'Выручка', type: 'income' },
   // Expense rules
   { keywords: ['зарплата', 'фот', 'заработная плата', 'оклад', 'премия', 'бонус', 'отпускные', 'больничный'], category: 'Фонд оплаты труда', type: 'expense' },
   { keywords: ['софт', 'saas', 'подписка', 'slack', 'github', 'aws', 'azure', 'google cloud', 'лицензия', 'хостинг', 'сервер', 'домен', 'облако'], category: 'Сервисы и ПО', type: 'expense' },
@@ -998,7 +998,40 @@ ${sampleRows}
       let amount = 0;
       let detectedType: 'income' | 'expense' | null = null;
 
-      if (columnMapping) {
+      // PRIORITY: Check for explicit "Списание" (expense) and "Зачисление" (income) columns
+      const writeoffCol = Object.keys(row).find(k => k.toLowerCase().includes('списани'));
+      const creditCol = Object.keys(row).find(k => k.toLowerCase().includes('зачисле'));
+
+      if (writeoffCol && row[writeoffCol]) {
+        const writeoffAmt = parseFloat(String(row[writeoffCol]).replace(/\s/g, '').replace(',', '.'));
+        if (!isNaN(writeoffAmt) && writeoffAmt > 0) {
+          amount = writeoffAmt;
+          detectedType = 'expense';
+        }
+      }
+
+      if (creditCol && row[creditCol]) {
+        const creditAmt = parseFloat(String(row[creditCol]).replace(/\s/g, '').replace(',', '.'));
+        if (!isNaN(creditAmt) && creditAmt > 0) {
+          // If we already have an expense, create two entries
+          if (amount > 0 && detectedType === 'expense') {
+            const expCat = categorizeByKeywords(allText);
+            normalized.push({
+              date,
+              amount,
+              description: allText.substring(0, 200),
+              category_name: expCat?.category || 'Сервисы и ПО',
+              type: 'expense',
+              confidence: expCat?.confidence || 0.6
+            });
+          }
+          amount = creditAmt;
+          detectedType = 'income';
+        }
+      }
+
+      // If not found via write-off/credit columns, try mapped columns
+      if (amount === 0 && columnMapping) {
         // If we have separate income/expense columns
         if (columnMapping.income_column && row[columnMapping.income_column]) {
           const incAmt = parseFloat(String(row[columnMapping.income_column]).replace(/\s/g, '').replace(',', '.'));
