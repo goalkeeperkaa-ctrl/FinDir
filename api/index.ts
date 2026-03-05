@@ -813,7 +813,92 @@ app.post("/api/categorize-ai", async (req, res) => {
   }
 });
 
-// Intelligent table analysis - AI analyzes entire table and categorizes automatically
+// Keyword-based categorization rules (deterministic, no AI needed)
+const CATEGORY_RULES: { keywords: string[]; category: string; type: 'income' | 'expense' }[] = [
+  // Income rules (check first!)
+  { keywords: ['доход', 'выручка', 'поступление', 'платеж от', 'оплата от', 'расчет от', 'платеж клиента', 'продажа', 'реализация', 'вознаграждение', 'возврат от', 'приход'], category: 'Выручка', type: 'income' },
+  // Expense rules
+  { keywords: ['зарплата', 'фот', 'заработная плата', 'оклад', 'премия', 'бонус', 'отпускные', 'больничный'], category: 'Фонд оплаты труда', type: 'expense' },
+  { keywords: ['софт', 'saas', 'подписка', 'slack', 'github', 'aws', 'azure', 'google cloud', 'лицензия', 'хостинг', 'сервер', 'домен', 'облако'], category: 'Сервисы и ПО', type: 'expense' },
+  { keywords: ['реклама', 'маркетинг', 'яндекс.директ', 'facebook', 'google ads', 'таргет', 'продвижение', 'seo', 'smm', 'pr'], category: 'Маркетинг', type: 'expense' },
+  { keywords: ['аренда', 'оренда', 'арендная плата', 'офис', 'коворкинг', 'помещение'], category: 'Аренда офиса', type: 'expense' },
+  { keywords: ['налог', 'ндс', 'ндфл', 'усн', 'взнос', 'пфр', 'фсс', 'сбор', 'пошлина', 'штраф'], category: 'Налоги', type: 'expense' },
+];
+
+function categorizeByKeywords(text: string): { category: string; type: 'income' | 'expense'; confidence: number } | null {
+  const lower = text.toLowerCase();
+  for (const rule of CATEGORY_RULES) {
+    for (const kw of rule.keywords) {
+      if (lower.includes(kw.toLowerCase())) {
+        return { category: rule.category, type: rule.type, confidence: 0.85 };
+      }
+    }
+  }
+  return null;
+}
+
+// Try to find a numeric value in a row (for amount detection)
+function findAmount(row: any): number {
+  const values = Object.values(row);
+  // Look for numeric values, prefer larger ones (likely amounts)
+  const nums: number[] = [];
+  for (const v of values) {
+    if (v === null || v === undefined || v === '') continue;
+    const s = String(v).replace(/\s/g, '').replace(',', '.');
+    const n = parseFloat(s);
+    if (!isNaN(n) && n > 0 && n < 1e12) {
+      nums.push(n);
+    }
+  }
+  // Return the largest number (most likely the amount)
+  return nums.length > 0 ? Math.max(...nums) : 0;
+}
+
+// Try to find a date in a row
+function findDate(row: any): string {
+  const values = Object.values(row);
+  for (const v of values) {
+    if (!v) continue;
+    const s = String(v);
+    // Match formats: DD.MM.YYYY, YYYY-MM-DD, DD/MM/YYYY
+    const dateMatch = s.match(/(\d{2})[./-](\d{2})[./-](\d{4})/);
+    if (dateMatch) {
+      const [, a, b, year] = dateMatch;
+      // If first number > 12, it's DD.MM.YYYY
+      if (parseInt(a) > 12) {
+        return `${year}-${b}-${a}`;
+      }
+      // If second > 12, it's MM.DD.YYYY (unlikely for Russian format)
+      if (parseInt(b) > 12) {
+        return `${year}-${a}-${b}`;
+      }
+      // Default: assume DD.MM.YYYY (Russian format)
+      return `${year}-${b}-${a}`;
+    }
+    const isoMatch = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) {
+      return isoMatch[0];
+    }
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
+// Build description from all text fields in a row
+function buildDescription(row: any): string {
+  return Object.values(row)
+    .filter(v => v !== null && v !== undefined && v !== '')
+    .map(v => String(v))
+    .filter(s => {
+      // Skip pure numbers and dates
+      if (/^\d+([.,]\d+)?$/.test(s.replace(/\s/g, ''))) return false;
+      if (/^\d{2}[./-]\d{2}[./-]\d{4}$/.test(s)) return false;
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return false;
+      return s.length > 1;
+    })
+    .join(' | ');
+}
+
+// Intelligent table analysis - hybrid: AI for structure detection, local for categorization
 app.post("/api/analyze-table", async (req, res) => {
   try {
     const { tableData } = req.body;
@@ -826,132 +911,179 @@ app.post("/api/analyze-table", async (req, res) => {
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.error('OpenAI API key not configured');
-      return res.status(400).json({ error: 'OpenAI API key not configured' });
-    }
-
     const categories = await getCategories();
-    console.log('Available categories:', categories);
-    const categoryList = categories.map((c: any) => `- ${c.name} (${c.type})`).join('\n');
 
-    // Prepare table data for AI analysis
-    const tableDescription = tableData.slice(0, 20).map((row: any, idx: number) => {
-      return Object.entries(row)
-        .map(([key, val]) => `${key}: ${val}`)
-        .join(' | ');
-    }).join('\n');
+    // Step 1: Use AI to understand the table structure (which column = what)
+    let columnMapping: any = null;
+    if (apiKey) {
+      try {
+        const sampleRows = tableData.slice(0, 5).map((row: any) => {
+          return Object.entries(row).map(([k, v]) => `${k}: ${v}`).join(' | ');
+        }).join('\n');
 
-    const prompt = `Ты финансовый аналитик. Проанализируй таблицу финансовых данных и распредели каждую строку по категориям.
+        const structurePrompt = `Проанализируй структуру этой таблицы финансовых данных.
 
-ТАБЛИЦА ДАННЫХ:
-${tableDescription}
+Первые 5 строк:
+${sampleRows}
 
-ДОСТУПНЫЕ КАТЕГОРИИ И ИХ ТИПЫ:
-${categoryList}
+Определи, какие колонки содержат:
+- date_column: название колонки с датой
+- amount_column: название колонки с суммой (или несколько: income_column и expense_column если раздельные)
+- description_column: название колонки с описанием/назначением платежа
+- counterparty_column: название колонки с контрагентом (если есть)
+- income_column: колонка с суммой дохода/прихода (если есть отдельная)
+- expense_column: колонка с суммой расхода (если есть отдельная)
 
-⚠️ КРИТИЧЕСКИЕ ПРАВИЛА ОПРЕДЕЛЕНИЯ ТИПА:
-ЕСЛИ в строке есть слова: "доход", "выручка", "поступление", "платеж от", "оплата от", "расчет от", "платеж клиента"
-→ ЭТО ВСЕГДА INCOME (доход), категория = Выручка
+ВАЖНО: Первая строка данных может быть заголовком! Если значения выглядят как названия колонок ("Дата", "Сумма", "Контрагент") - укажи header_row: true
 
-ЕСЛИ в строке есть слова: "зарплата", "ФОТ", "заработная плата"
-→ ЭТО ВСЕГДА EXPENSE, категория = Фонд оплаты труда
+Ответь ТОЛЬКО JSON:
+{
+  "header_row": true/false,
+  "date_column": "имя колонки",
+  "amount_column": "имя колонки или null",
+  "income_column": "имя колонки или null",
+  "expense_column": "имя колонки или null",
+  "description_column": "имя колонки или null",
+  "counterparty_column": "имя колонки или null"
+}`;
 
-ЕСЛИ в строке есть слова: "софт", "SaaS", "подписка", "Slack", "GitHub", "AWS"
-→ ЭТО ВСЕГДА EXPENSE, категория = Сервисы и ПО
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: structurePrompt }],
+            temperature: 0.1,
+            max_tokens: 500
+          })
+        });
 
-ЕСЛИ в строке есть слова: "реклама", "маркетинг", "Яндекс", "Facebook", "Google"
-→ ЭТО ВСЕГДА EXPENSE, категория = Маркетинг
-
-ЕСЛИ в строке есть слова: "аренда", "оренда", "арендная плата"
-→ ЭТО ВСЕГДА EXPENSE, категория = Аренда офиса
-
-ЕСЛИ в строке есть слова: "налог", "НДС", "1С", "сбор"
-→ ЭТО ВСЕГДА EXPENSE, категория = Налоги
-
-АЛГОРИТМ АНАЛИЗА:
-1. Объедини все текстовые поля строки в одно описание
-2. Проверь ключевые слова выше в ПРИОРИТЕТНОМ порядке
-3. Если нет явных ключевых слов - это обычно EXPENSE (расходы по умолчанию)
-4. Всегда указывай тип (income или expense) явно на основе правил выше
-
-Ответь ТОЛЬКО JSON массивом, БЕЗ доп. текста:
-[
-  {
-    "row_index": номер строки,
-    "description": описание из таблицы (объединенные поля),
-    "amount": сумма,
-    "date": дата,
-    "type": "income" или "expense",
-    "category": "название категории из списка",
-    "confidence": число от 0 до 1
-  }
-]`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.2,
-        max_tokens: 4000
-      })
-    });
-
-    const data = await response.json();
-
-    if (data.error) {
-      console.error('OpenAI error:', data.error);
-      return res.status(500).json({ error: data.error.message });
+        const data = await response.json();
+        if (data.choices?.[0]?.message?.content) {
+          let jsonStr = data.choices[0].message.content;
+          const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+          if (jsonMatch) jsonStr = jsonMatch[1];
+          columnMapping = JSON.parse(jsonStr);
+          console.log('AI detected column mapping:', columnMapping);
+        }
+      } catch (e) {
+        console.warn('AI structure detection failed, using heuristics:', e);
+      }
     }
 
-    console.log('OpenAI response received');
-    const aiResponse = data.choices?.[0]?.message?.content || '[]';
-    console.log('AI response preview:', aiResponse.substring(0, 200));
-
-    // Extract JSON from markdown code blocks if present
-    let jsonStr = aiResponse;
-    const jsonMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1];
+    // Step 2: Determine starting row (skip header if detected)
+    let startIdx = 0;
+    if (columnMapping?.header_row) {
+      startIdx = 1;
+      console.log('Skipping header row');
     }
 
-    let analyzed;
-    try {
-      analyzed = JSON.parse(jsonStr);
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError, 'Response:', aiResponse);
-      return res.status(500).json({ error: 'Failed to parse AI response: ' + String(parseError) });
+    // Step 3: Process ALL rows with local categorization
+    const normalized: any[] = [];
+
+    for (let i = startIdx; i < tableData.length; i++) {
+      const row = tableData[i];
+      const allText = buildDescription(row);
+
+      // Skip empty rows
+      if (!allText || allText.trim().length === 0) continue;
+
+      // Find date
+      let date = findDate(row);
+
+      // Find amount - try mapped columns first
+      let amount = 0;
+      let detectedType: 'income' | 'expense' | null = null;
+
+      if (columnMapping) {
+        // If we have separate income/expense columns
+        if (columnMapping.income_column && row[columnMapping.income_column]) {
+          const incAmt = parseFloat(String(row[columnMapping.income_column]).replace(/\s/g, '').replace(',', '.'));
+          if (!isNaN(incAmt) && incAmt > 0) {
+            amount = incAmt;
+            detectedType = 'income';
+          }
+        }
+        if (columnMapping.expense_column && row[columnMapping.expense_column]) {
+          const expAmt = parseFloat(String(row[columnMapping.expense_column]).replace(/\s/g, '').replace(',', '.'));
+          if (!isNaN(expAmt) && expAmt > 0) {
+            // If both income and expense exist in the same row, create two entries
+            if (amount > 0 && detectedType === 'income') {
+              // We already have an income entry, add expense separately
+              const expCat = categorizeByKeywords(allText);
+              normalized.push({
+                date,
+                amount: expAmt,
+                description: allText.substring(0, 200),
+                category_name: expCat?.category || 'Сервисы и ПО',
+                type: 'expense',
+                confidence: expCat?.confidence || 0.6
+              });
+            } else {
+              amount = expAmt;
+              detectedType = 'expense';
+            }
+          }
+        }
+        // Single amount column
+        if (amount === 0 && columnMapping.amount_column && row[columnMapping.amount_column]) {
+          const amt = parseFloat(String(row[columnMapping.amount_column]).replace(/\s/g, '').replace(',', '.'));
+          if (!isNaN(amt) && amt !== 0) {
+            amount = Math.abs(amt);
+            // Negative amount = expense, positive = could be either
+            if (amt < 0) detectedType = 'expense';
+          }
+        }
+        // Use mapped date column
+        if (columnMapping.date_column && row[columnMapping.date_column]) {
+          const mappedDate = findDate({ d: row[columnMapping.date_column] });
+          if (mappedDate) date = mappedDate;
+        }
+      }
+
+      // Fallback: find amount from any column
+      if (amount === 0) {
+        amount = findAmount(row);
+      }
+
+      // Skip rows with no amount
+      if (amount <= 0) continue;
+
+      // Categorize by keywords
+      const keywordResult = categorizeByKeywords(allText);
+      const categoryName = keywordResult?.category || 'Выручка';
+      const type = detectedType || keywordResult?.type || 'expense';
+      const confidence = keywordResult?.confidence || 0.6;
+
+      // Build description
+      let description = allText.substring(0, 200);
+      if (columnMapping?.description_column && row[columnMapping.description_column]) {
+        description = String(row[columnMapping.description_column]);
+      }
+      if (columnMapping?.counterparty_column && row[columnMapping.counterparty_column]) {
+        const cp = String(row[columnMapping.counterparty_column]);
+        if (cp && !description.includes(cp)) {
+          description = `${cp} - ${description}`;
+        }
+      }
+
+      normalized.push({
+        date,
+        amount,
+        description: description.substring(0, 200),
+        category_name: categoryName,
+        type,
+        confidence
+      });
     }
 
-    if (!Array.isArray(analyzed)) {
-      console.log('AI response is not an array, converting to empty array');
-      analyzed = [];
-    }
-
-    console.log('Parsed', analyzed.length, 'items from AI');
-
-    // Validate and normalize the results
-    const normalized = analyzed.map((item: any) => {
-      const cat = categories.find((c: any) => c.name === item.category) || categories[0];
-      return {
-        date: item.date || new Date().toISOString().split('T')[0],
-        amount: parseFloat(String(item.amount)) || 0,
-        description: item.description || 'Импортированная транзакция',
-        category_name: cat.name,
-        type: item.type || cat.type,
-        confidence: item.confidence || 0.7
-      };
-    }).filter((t: any) => t.amount > 0);
-
-    console.log('Normalized', normalized.length, 'transactions');
-    console.log('Sample normalized:', normalized[0]);
+    console.log(`Processed ${tableData.length} rows -> ${normalized.length} transactions`);
+    console.log('Sample:', normalized[0]);
+    console.log('Income count:', normalized.filter(t => t.type === 'income').length);
+    console.log('Expense count:', normalized.filter(t => t.type === 'expense').length);
 
     res.json({
       analyzed: normalized,
