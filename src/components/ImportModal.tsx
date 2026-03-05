@@ -169,11 +169,15 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       console.log('Starting smart analysis with', rawData.length, 'rows');
       console.log('Sample data:', rawData[0]);
 
-      // Send raw table data to AI for analysis
+      // Limit data to first 500 rows to avoid payload size issues
+      const sampleData = rawData.slice(0, 500);
+      console.log('Sending', sampleData.length, 'rows to analyze');
+
+      // Send table data to AI for analysis
       const res = await fetch('/api/analyze-table', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableData: rawData })
+        body: JSON.stringify({ tableData: sampleData })
       });
 
       console.log('Response status:', res.status);
