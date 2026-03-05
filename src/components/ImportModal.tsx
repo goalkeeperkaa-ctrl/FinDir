@@ -169,9 +169,22 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       console.log('Starting smart analysis with', rawData.length, 'rows');
       console.log('Sample data:', rawData[0]);
 
-      // Limit data to first 500 rows to avoid payload size issues
-      const sampleData = rawData.slice(0, 500);
+      // Limit data to first 30 rows to avoid payload size issues
+      // Only send essential columns to minimize payload
+      const sampleData = rawData.slice(0, 30).map((row: any) => {
+        // Keep only key-value pairs, filter out empty values
+        const simplified: any = {};
+        for (const [key, value] of Object.entries(row)) {
+          if (value !== null && value !== undefined && value !== '') {
+            simplified[key] = String(value).substring(0, 100); // limit string length
+          }
+        }
+        return simplified;
+      });
+
       console.log('Sending', sampleData.length, 'rows to analyze');
+      const payloadSize = JSON.stringify({ tableData: sampleData }).length;
+      console.log('Payload size:', payloadSize, 'bytes');
 
       // Send table data to AI for analysis
       const res = await fetch('/api/analyze-table', {

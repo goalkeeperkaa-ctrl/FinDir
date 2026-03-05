@@ -2,7 +2,8 @@ import express from "express";
 import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
-app.use(express.json());
+// Increase payload limit for large table imports
+app.use(express.json({ limit: '10mb' }));
 
 // Try to import database manager, fallback to in-memory if it fails
 let dbManager: any = null;
