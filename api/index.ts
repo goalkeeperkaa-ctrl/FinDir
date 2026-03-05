@@ -641,7 +641,58 @@ app.get("/api/unit-economics", async (req, res) => {
 // Import CSV
 app.post("/api/import", async (req, res) => {
   try {
-    const { transactions: txs } = req.body;
+    const { transactions: txs, autoCategory } = req.body;
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    // If autoCategory is enabled and API key exists, use AI categorization
+    if (autoCategory && apiKey) {
+      const categories = await getCategories();
+      const categoryNames = categories.map((c: any) => `${c.name} (${c.type})`).join(', ');
+
+      for (const tx of txs) {
+        if (!tx.category_name) {
+          try {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  {
+                    role: 'user',
+                    content: `Проанализируй описание финансовой транзакции и определи категорию.
+
+Описание: "${tx.description}"
+Сумма: ${tx.amount}
+
+Доступные категории: ${categoryNames}
+
+Ответь ТОЛЬКО названием категории из списка, без кавычек и доп. текста. Например: Маркетинг`
+                  }
+                ],
+                temperature: 0.3,
+                max_tokens: 50
+              })
+            });
+
+            const data = await response.json();
+            if (data.choices?.[0]?.message?.content) {
+              const categoryName = data.choices[0].message.content.trim();
+              const found = categories.find((c: any) => c.name.toLowerCase() === categoryName.toLowerCase());
+              if (found) {
+                tx.category_name = found.name;
+              }
+            }
+          } catch (e) {
+            console.warn('AI categorization failed for:', tx.description);
+          }
+        }
+      }
+    }
+
     const imported = await importTransactions(txs);
     res.json({ imported, count: imported.length });
   } catch (error: any) {
@@ -659,6 +710,96 @@ app.post("/api/categorize", async (req, res) => {
     res.json({ category_id: cat?.id, category_name: cat?.name });
   } catch (error: any) {
     console.error('Categorize error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI-powered categorization
+app.post("/api/categorize-ai", async (req, res) => {
+  try {
+    const { description, amount } = req.body;
+
+    if (!description) {
+      return res.status(400).json({ error: 'Description is required' });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      // Fallback if no API key
+      const categories = await getCategories();
+      return res.json({
+        category_name: categories[0]?.name || 'Unknown',
+        category_type: 'expense',
+        confidence: 0.5
+      });
+    }
+
+    const categories = await getCategories();
+    const categoryNames = categories.map((c: any) => `${c.name} (${c.type})`).join(', ');
+
+    const prompt = `Проанализируй описание финансовой транзакции и определи категорию.
+
+Описание: "${description}"
+Сумма: ${amount || 'неизвестна'}
+
+Доступные категории: ${categoryNames}
+
+Ответь в формате JSON:
+{
+  "category": "название категории из списка",
+  "type": "income или expense",
+  "confidence": число от 0 до 1 (уверенность в определении)
+}
+
+Правила:
+- Для расходов (expense): Фонд оплаты труда, Сервисы и ПО, Маркетинг, Аренда офиса, Налоги
+- Для доходов (income): Выручка
+- Анализируй ключевые слова: зарплата, ФОТ, софт, сервис, реклама, маркетинг, аренда, налог, доход, оплата от клиента
+- Будь точен в определении категории`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 200
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      console.error('OpenAI error:', data.error);
+      // Fallback to first category
+      const fallback = categories[0];
+      return res.json({
+        category_name: fallback?.name || 'Unknown',
+        category_type: fallback?.type || 'expense',
+        confidence: 0.5
+      });
+    }
+
+    const aiResponse = data.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(aiResponse);
+
+    // Validate and ensure category exists
+    const selectedCategory = categories.find((c: any) => c.name === parsed.category);
+    const category = selectedCategory || categories[0];
+
+    res.json({
+      category_name: category.name,
+      category_type: category.type,
+      confidence: parsed.confidence || 0.8
+    });
+  } catch (error: any) {
+    console.error('AI Categorize error:', error);
     res.status(500).json({ error: error.message });
   }
 });
