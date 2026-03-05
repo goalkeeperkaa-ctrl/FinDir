@@ -266,7 +266,7 @@ app.get("/api/reports/p-l", async (req, res) => {
 // Bulk Import Transactions Endpoint
 app.post("/api/import", async (req, res) => {
   try {
-    const { transactions } = req.body;
+    const { transactions, autoCategory } = req.body;
 
     if (!Array.isArray(transactions) || transactions.length === 0) {
       return res.status(400).json({ error: "Invalid or empty transactions array" });
@@ -280,6 +280,7 @@ app.post("/api/import", async (req, res) => {
         const date = tx.date || new Date().toISOString().split('T')[0];
         const amount = parseFloat(tx.amount);
         const description = tx.description || 'Импортированная транзакция';
+        const type = tx.type || 'expense'; // 'income' or 'expense'
         let category_id = tx.category_id;
 
         if (!date || isNaN(amount)) {
@@ -287,9 +288,65 @@ app.post("/api/import", async (req, res) => {
           continue;
         }
 
-        // If category not provided, try to find by name
-        if (!category_id && tx.category_name) {
+        // Auto-categorize if enabled and it's an expense
+        if (autoCategory && type === 'expense' && !category_id) {
+          try {
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+            // Fetch available categories
+            const categoriesResult = await query('SELECT id, name, type FROM categories');
+            const categories = categoriesResult.rows as { id: string, name: string, type: string }[];
+            const expenseCategories = categories.filter(c => c.type === 'expense');
+            const categoriesJson = JSON.stringify(expenseCategories);
+
+            const prompt = `
+              Analyze the following transaction:
+              Description: "${description}"
+              Amount: ${amount} RUB
+
+              Available Categories:
+              ${categoriesJson}
+
+              Task: Select the most appropriate category ID for this expense.
+              Return ONLY the category ID as a plain string. Do not include any other text or JSON formatting.
+              If no category fits well, return the ID for the most general category (e.g., "Сервисы и ПО").
+            `;
+
+            const result = await openai.chat.completions.create({
+              model: "gpt-4o-mini",
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.3
+            });
+
+            const categoryId = result.choices[0].message.content?.trim();
+
+            // Verify the category exists
+            const category = categories.find(c => c.id === categoryId && c.type === 'expense');
+
+            if (category) {
+              category_id = category.id;
+            } else {
+              // Fallback to first expense category
+              const fallback = expenseCategories[0];
+              category_id = fallback?.id || null;
+            }
+          } catch (aiError) {
+            console.error("Auto-categorization error:", aiError);
+            // Fallback: find default expense category
+            const catResult = await query('SELECT id FROM categories WHERE type = $1 LIMIT 1', ['expense']);
+            if (catResult.rows.length > 0) {
+              category_id = catResult.rows[0].id;
+            }
+          }
+        } else if (!category_id && tx.category_name) {
+          // If category not provided, try to find by name
           const catResult = await query('SELECT id FROM categories WHERE LOWER(name) LIKE LOWER($1)', [`%${tx.category_name}%`]);
+          if (catResult.rows.length > 0) {
+            category_id = catResult.rows[0].id;
+          }
+        } else if (!category_id) {
+          // Fallback: find default category based on type
+          const catResult = await query('SELECT id FROM categories WHERE type = $1 LIMIT 1', [type]);
           if (catResult.rows.length > 0) {
             category_id = catResult.rows[0].id;
           }
@@ -305,6 +362,7 @@ app.post("/api/import", async (req, res) => {
     }
 
     res.json({
+      count: imported,
       imported,
       errors: errors.length > 0 ? errors : undefined,
       total: transactions.length

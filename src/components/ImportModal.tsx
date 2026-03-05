@@ -16,9 +16,10 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   const [preview, setPreview] = useState<any[]>([]);
   const [importResult, setImportResult] = useState<any>(null);
   const [rawData, setRawData] = useState<any[]>([]);
-  const [columnMapping, setColumnMapping] = useState<{date?: string, amount?: string, description?: string, category?: string}>({});
+  const [columnMapping, setColumnMapping] = useState<{date?: string, income_column?: string, expense_column?: string, description?: string, category?: string}>({});
   const [showColumnMapping, setShowColumnMapping] = useState(false);
   const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  const [autoCategory, setAutoCategory] = useState(true);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -101,19 +102,43 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
   };
 
   const normalizeData = () => {
-    const normalized = rawData.map(row => {
-      const mapped: any = {};
+    const normalized = rawData.flatMap(row => {
+      const transactions: any[] = [];
 
-      if (columnMapping.date) mapped.date = row[columnMapping.date];
-      if (columnMapping.amount) mapped.amount = row[columnMapping.amount];
-      if (columnMapping.description) mapped.description = row[columnMapping.description] || 'Импортированная транзакция';
-      if (columnMapping.category) mapped.category_name = row[columnMapping.category];
+      // Process income column
+      if (columnMapping.income_column && row[columnMapping.income_column]) {
+        const amount = parseFloat(String(row[columnMapping.income_column]));
+        if (!isNaN(amount) && amount > 0) {
+          transactions.push({
+            date: columnMapping.date ? row[columnMapping.date] : new Date().toISOString().split('T')[0],
+            amount: amount,
+            description: columnMapping.description ? row[columnMapping.description] : 'Доход',
+            category_name: 'Выручка',
+            type: 'income'
+          });
+        }
+      }
 
-      return mapped;
+      // Process expense column
+      if (columnMapping.expense_column && row[columnMapping.expense_column]) {
+        const amount = parseFloat(String(row[columnMapping.expense_column]));
+        if (!isNaN(amount) && amount > 0) {
+          transactions.push({
+            date: columnMapping.date ? row[columnMapping.date] : new Date().toISOString().split('T')[0],
+            amount: amount,
+            description: columnMapping.description ? row[columnMapping.description] : 'Расход',
+            category_name: columnMapping.category ? row[columnMapping.category] : 'Сервисы и ПО',
+            type: 'expense',
+            autoCategory: autoCategory
+          });
+        }
+      }
+
+      return transactions;
     }).filter(row => row.date && row.amount);
 
     if (normalized.length === 0) {
-      setError('Не найдены строки с датой и суммой. Проверьте выбранные колонки.');
+      setError('Не найдены строки с доходами или расходами. Проверьте выбранные колонки.');
       return null;
     }
 
@@ -135,7 +160,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactions })
+        body: JSON.stringify({ transactions, autoCategory })
       });
 
       if (!res.ok) {
@@ -187,7 +212,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                 <h4 className="text-white font-medium mb-4">Выберите колонки в файле:</h4>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs text-zinc-500 mb-2">Дата</label>
+                    <label className="block text-xs text-zinc-500 mb-2">Дата (опционально)</label>
                     <select
                       value={columnMapping.date || ''}
                       onChange={(e) => setColumnMapping({...columnMapping, date: e.target.value})}
@@ -200,22 +225,38 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-xs text-zinc-500 mb-2">Сумма *</label>
-                    <select
-                      value={columnMapping.amount || ''}
-                      onChange={(e) => setColumnMapping({...columnMapping, amount: e.target.value})}
-                      className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
-                    >
-                      <option value="">-- Выберите колону с суммой --</option>
-                      {availableColumns.map(col => (
-                        <option key={col} value={col}>{col}</option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-2">Доходы</label>
+                      <select
+                        value={columnMapping.income_column || ''}
+                        onChange={(e) => setColumnMapping({...columnMapping, income_column: e.target.value})}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">-- Опционально --</option>
+                        {availableColumns.map(col => (
+                          <option key={col} value={col}>{col}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-2">Расходы *</label>
+                      <select
+                        value={columnMapping.expense_column || ''}
+                        onChange={(e) => setColumnMapping({...columnMapping, expense_column: e.target.value})}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                      >
+                        <option value="">-- Выберите колону с расходами --</option>
+                        {availableColumns.map(col => (
+                          <option key={col} value={col}>{col}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs text-zinc-500 mb-2">Описание</label>
+                    <label className="block text-xs text-zinc-500 mb-2">Описание (опционально)</label>
                     <select
                       value={columnMapping.description || ''}
                       onChange={(e) => setColumnMapping({...columnMapping, description: e.target.value})}
@@ -229,7 +270,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-zinc-500 mb-2">Категория</label>
+                    <label className="block text-xs text-zinc-500 mb-2">Категория расходов (опционально)</label>
                     <select
                       value={columnMapping.category || ''}
                       onChange={(e) => setColumnMapping({...columnMapping, category: e.target.value})}
@@ -240,6 +281,20 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                         <option key={col} value={col}>{col}</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mt-4">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoCategory}
+                        onChange={(e) => setAutoCategory(e.target.checked)}
+                        className="w-4 h-4 rounded"
+                      />
+                      <span className="text-sm text-blue-300">
+                        🤖 Автоматически распределить расходы по категориям (требуется API ключ)
+                      </span>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -256,7 +311,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                 </button>
                 <button
                   onClick={proceedWithImport}
-                  disabled={!columnMapping.amount}
+                  disabled={!columnMapping.expense_column && !columnMapping.income_column}
                   className="flex-1 bg-orange-500 text-black py-2 rounded-lg text-sm font-bold hover:bg-orange-400 disabled:opacity-50"
                 >
                   Продолжить
@@ -311,6 +366,8 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                       <tr className="border-b border-white/10">
                         <th className="text-left py-2 px-2 text-zinc-400">Дата</th>
                         <th className="text-right py-2 px-2 text-zinc-400">Сумма</th>
+                        <th className="text-left py-2 px-2 text-zinc-400">Тип</th>
+                        <th className="text-left py-2 px-2 text-zinc-400">Категория</th>
                         <th className="text-left py-2 px-2 text-zinc-400">Описание</th>
                       </tr>
                     </thead>
@@ -319,6 +376,14 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                         <tr key={i} className="border-b border-white/5">
                           <td className="py-2 px-2 text-zinc-400">{row.date}</td>
                           <td className="py-2 px-2 text-right text-white font-mono">{row.amount}</td>
+                          <td className="py-2 px-2">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              row.type === 'income' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                            }`}>
+                              {row.type === 'income' ? '💰 Доход' : '💸 Расход'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-2 text-zinc-400">{row.category_name}</td>
                           <td className="py-2 px-2 text-zinc-400 truncate">{row.description}</td>
                         </tr>
                       ))}
