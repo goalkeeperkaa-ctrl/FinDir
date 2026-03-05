@@ -169,9 +169,9 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       console.log('Starting smart analysis with', rawData.length, 'rows');
       console.log('Sample data:', rawData[0]);
 
-      // Limit data to first 30 rows to avoid payload size issues
+      // Send all rows for analysis (limit to 200 to avoid payload size issues)
       // Only send essential columns to minimize payload
-      const sampleData = rawData.slice(0, 30).map((row: any) => {
+      const sampleData = rawData.slice(0, 200).map((row: any) => {
         // Keep only key-value pairs, filter out empty values
         const simplified: any = {};
         for (const [key, value] of Object.entries(row)) {
