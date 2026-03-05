@@ -159,6 +159,16 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
       setIsLoading(true);
       setError(null);
 
+      // Check if we have data
+      if (!rawData || rawData.length === 0) {
+        setError('Нет данных для анализа. Загрузите файл.');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('Starting smart analysis with', rawData.length, 'rows');
+      console.log('Sample data:', rawData[0]);
+
       // Send raw table data to AI for analysis
       const res = await fetch('/api/analyze-table', {
         method: 'POST',
@@ -166,14 +176,25 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         body: JSON.stringify({ tableData: rawData })
       });
 
+      console.log('Response status:', res.status);
+
       if (!res.ok) {
         const err = await res.json();
+        console.error('API Error:', err);
         setError(`Ошибка анализа: ${err.error || 'Неизвестная ошибка'}`);
         setIsLoading(false);
         return;
       }
 
       const result = await res.json();
+      console.log('Analysis result:', result);
+
+      if (!result.analyzed || result.analyzed.length === 0) {
+        setError('AI не смог проанализировать данные. Попробуйте выбрать колонки вручную.');
+        setIsLoading(false);
+        return;
+      }
+
       setPreview(result.analyzed.slice(0, 5));
       setShowColumnMapping(false);
       submitImport(result.analyzed);

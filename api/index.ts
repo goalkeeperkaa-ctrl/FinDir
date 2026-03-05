@@ -809,16 +809,21 @@ app.post("/api/analyze-table", async (req, res) => {
   try {
     const { tableData } = req.body;
 
+    console.log('Analyze table request received with', tableData?.length, 'rows');
+
     if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
+      console.error('Invalid table data:', tableData);
       return res.status(400).json({ error: 'Table data is required' });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      console.error('OpenAI API key not configured');
       return res.status(400).json({ error: 'OpenAI API key not configured' });
     }
 
     const categories = await getCategories();
+    console.log('Available categories:', categories);
     const categoryList = categories.map((c: any) => `- ${c.name} (${c.type})`).join('\n');
 
     // Prepare table data for AI analysis
@@ -886,7 +891,9 @@ ${categoryList}
       return res.status(500).json({ error: data.error.message });
     }
 
+    console.log('OpenAI response received');
     const aiResponse = data.choices?.[0]?.message?.content || '[]';
+    console.log('AI response preview:', aiResponse.substring(0, 200));
 
     // Extract JSON from markdown code blocks if present
     let jsonStr = aiResponse;
@@ -904,8 +911,11 @@ ${categoryList}
     }
 
     if (!Array.isArray(analyzed)) {
+      console.log('AI response is not an array, converting to empty array');
       analyzed = [];
     }
+
+    console.log('Parsed', analyzed.length, 'items from AI');
 
     // Validate and normalize the results
     const normalized = analyzed.map((item: any) => {
@@ -919,6 +929,9 @@ ${categoryList}
         confidence: item.confidence || 0.7
       };
     }).filter((t: any) => t.amount > 0);
+
+    console.log('Normalized', normalized.length, 'transactions');
+    console.log('Sample normalized:', normalized[0]);
 
     res.json({
       analyzed: normalized,
