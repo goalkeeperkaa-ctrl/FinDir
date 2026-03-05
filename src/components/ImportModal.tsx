@@ -239,8 +239,20 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           showColumnMapping ? (
             <div className="space-y-6">
               <div>
-                <h4 className="text-white font-medium mb-4">Выберите колонки в файле:</h4>
-                <div className="space-y-3">
+                <div className="mb-6">
+                  <button
+                    onClick={smartAnalyzeTable}
+                    disabled={isLoading}
+                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg text-sm font-bold hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 transition-all mb-2"
+                  >
+                    ✨ Умный анализ таблицы
+                  </button>
+                  <p className="text-xs text-zinc-500 text-center">Нейросеть сама распределит доходы и расходы</p>
+                </div>
+
+                <div className="border-t border-white/10 pt-6 mt-4">
+                  <h4 className="text-white font-medium mb-4">Или выберите колонки вручную:</h4>
+                  <div className="space-y-3">
                   <div>
                     <label className="block text-xs text-zinc-500 mb-2">Дата (опционально)</label>
                     <select
@@ -313,14 +325,6 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                     </select>
                   </div>
 
-                  <button
-                    onClick={smartAnalyzeTable}
-                    disabled={isLoading}
-                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg text-sm font-bold hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 transition-all"
-                  >
-                    ✨ Умный анализ таблицы
-                  </button>
-
                   <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mt-4">
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
@@ -334,6 +338,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                       </span>
                     </label>
                   </div>
+                </div>
                 </div>
               </div>
 

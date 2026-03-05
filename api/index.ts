@@ -895,7 +895,17 @@ ${categoryList}
       jsonStr = jsonMatch[1];
     }
 
-    const analyzed = JSON.parse(jsonStr);
+    let analyzed;
+    try {
+      analyzed = JSON.parse(jsonStr);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError, 'Response:', aiResponse);
+      return res.status(500).json({ error: 'Failed to parse AI response: ' + String(parseError) });
+    }
+
+    if (!Array.isArray(analyzed)) {
+      analyzed = [];
+    }
 
     // Validate and normalize the results
     const normalized = analyzed.map((item: any) => {
