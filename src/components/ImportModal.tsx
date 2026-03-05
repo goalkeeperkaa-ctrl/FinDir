@@ -101,14 +101,32 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     }
   };
 
+  const parseAmount = (str: string): number => {
+    if (!str) return 0;
+    str = str.trim();
+    let cleaned = str.replace(/\s/g, '');
+
+    const lastCommaIdx = cleaned.lastIndexOf(',');
+    const lastDotIdx = cleaned.lastIndexOf('.');
+
+    if (lastCommaIdx > lastDotIdx && lastCommaIdx >= 0) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else if (lastDotIdx > lastCommaIdx && lastDotIdx >= 0) {
+      cleaned = cleaned.replace(/,/g, '');
+    }
+
+    const n = parseFloat(cleaned);
+    return !isNaN(n) ? n : 0;
+  };
+
   const normalizeData = () => {
     const normalized = rawData.flatMap(row => {
       const transactions: any[] = [];
 
       // Process income column
       if (columnMapping.income_column && row[columnMapping.income_column]) {
-        const amount = parseFloat(String(row[columnMapping.income_column]));
-        if (!isNaN(amount) && amount > 0) {
+        const amount = parseAmount(String(row[columnMapping.income_column]));
+        if (amount > 0) {
           transactions.push({
             date: columnMapping.date ? row[columnMapping.date] : new Date().toISOString().split('T')[0],
             amount: amount,
@@ -121,8 +139,8 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
 
       // Process expense column
       if (columnMapping.expense_column && row[columnMapping.expense_column]) {
-        const amount = parseFloat(String(row[columnMapping.expense_column]));
-        if (!isNaN(amount) && amount > 0) {
+        const amount = parseAmount(String(row[columnMapping.expense_column]));
+        if (amount > 0) {
           transactions.push({
             date: columnMapping.date ? row[columnMapping.date] : new Date().toISOString().split('T')[0],
             amount: amount,
@@ -154,75 +172,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     }
   };
 
-  const smartAnalyzeTable = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // Check if we have data
-      if (!rawData || rawData.length === 0) {
-        setError('Нет данных для анализа. Загрузите файл.');
-        setIsLoading(false);
-        return;
-      }
-
-      console.log('Starting smart analysis with', rawData.length, 'rows');
-      console.log('Sample data:', rawData[0]);
-
-      // Send all rows for analysis (limit to 200 to avoid payload size issues)
-      // Only send essential columns to minimize payload
-      const sampleData = rawData.slice(0, 200).map((row: any) => {
-        // Keep only key-value pairs, filter out empty values
-        const simplified: any = {};
-        for (const [key, value] of Object.entries(row)) {
-          if (value !== null && value !== undefined && value !== '') {
-            simplified[key] = String(value).substring(0, 100); // limit string length
-          }
-        }
-        return simplified;
-      });
-
-      console.log('Sending', sampleData.length, 'rows to analyze');
-      const payloadSize = JSON.stringify({ tableData: sampleData }).length;
-      console.log('Payload size:', payloadSize, 'bytes');
-
-      // Send table data to AI for analysis
-      const res = await fetch('/api/analyze-table', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableData: sampleData })
-      });
-
-      console.log('Response status:', res.status);
-
-      if (!res.ok) {
-        const err = await res.json();
-        console.error('API Error:', err);
-        setError(`Ошибка анализа: ${err.error || 'Неизвестная ошибка'}`);
-        setIsLoading(false);
-        return;
-      }
-
-      const result = await res.json();
-      console.log('Analysis result:', result);
-
-      if (!result.analyzed || result.analyzed.length === 0) {
-        setError('AI не смог проанализировать данные. Попробуйте выбрать колонки вручную.');
-        setIsLoading(false);
-        return;
-      }
-
-      setPreview(result.analyzed.slice(0, 5));
-      setShowColumnMapping(false);
-      submitImport(result.analyzed);
-    } catch (e: any) {
-      console.error('Smart analysis error:', e);
-      setError(`Ошибка при анализе таблицы: ${e.message || String(e)}`);
-      setIsLoading(false);
-    }
-  };
-
-  const submitImport = async (transactions: any[]) => {
+const submitImport = async (transactions: any[]) => {
     try {
       setIsLoading(true);
       const res = await fetch('/api/import', {
@@ -262,7 +212,7 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-[#18181b] border border-white/10 rounded-[2rem] w-full max-w-2xl p-8 shadow-2xl relative overflow-hidden"
+        className="bg-[#18181b] border border-white/10 rounded-[2rem] w-full max-w-2xl max-h-[90vh] overflow-y-auto p-8 shadow-2xl relative"
       >
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-purple-600" />
 
@@ -277,19 +227,8 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
           showColumnMapping ? (
             <div className="space-y-6">
               <div>
-                <div className="mb-6">
-                  <button
-                    onClick={smartAnalyzeTable}
-                    disabled={isLoading}
-                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg text-sm font-bold hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 transition-all mb-2"
-                  >
-                    ✨ Умный анализ таблицы
-                  </button>
-                  <p className="text-xs text-zinc-500 text-center">Нейросеть сама распределит доходы и расходы</p>
-                </div>
-
-                <div className="border-t border-white/10 pt-6 mt-4">
-                  <h4 className="text-white font-medium mb-4">Или выберите колонки вручную:</h4>
+                <div className="mb-4">
+                  <h4 className="text-white font-medium mb-4">Выберите колонки вашей таблицы:</h4>
                   <div className="space-y-3">
                   <div>
                     <label className="block text-xs text-zinc-500 mb-2">Дата (опционально)</label>
@@ -376,7 +315,6 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                       </span>
                     </label>
                   </div>
-                </div>
                 </div>
               </div>
 
