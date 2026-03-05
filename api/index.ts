@@ -813,6 +813,20 @@ app.post("/api/categorize-ai", async (req, res) => {
   }
 });
 
+// Detect transaction type from column name (e.g., "Доход", "Расход", "Списание", "Зачисление")
+function detectTypeFromColumnName(columnName: string): 'income' | 'expense' | null {
+  const lower = columnName.toLowerCase();
+  // Income indicators
+  if (lower.includes('доход') || lower.includes('зачисле') || lower.includes('приход') || lower.includes('выручка') || lower.includes('поступле')) {
+    return 'income';
+  }
+  // Expense indicators
+  if (lower.includes('расход') || lower.includes('списани') || lower.includes('трата') || lower.includes('платеж')) {
+    return 'expense';
+  }
+  return null;
+}
+
 // Keyword-based categorization rules (deterministic, no AI needed)
 const CATEGORY_RULES: { keywords: string[]; category: string; type: 'income' | 'expense' }[] = [
   // Income rules (check first!)
@@ -837,6 +851,33 @@ function categorizeByKeywords(text: string): { category: string; type: 'income' 
   return null;
 }
 
+// Parse a number from various formats (handles spaces, commas, dots)
+function parseAmount(str: string): number {
+  if (!str) return 0;
+  // Remove leading/trailing spaces
+  str = str.trim();
+  // Handle formats: "60 000,00" (spaces + comma), "60000.00" (dot), "60,000.00" (comma), etc.
+  // Strategy: if there's a comma and a dot, the last one is decimal separator
+  // Otherwise, comma or dot after 2+ digits is decimal separator
+  let cleaned = str.replace(/\s/g, ''); // Remove all spaces
+
+  // Detect decimal separator - find last occurrence of comma or dot
+  const lastCommaIdx = cleaned.lastIndexOf(',');
+  const lastDotIdx = cleaned.lastIndexOf('.');
+
+  if (lastCommaIdx > lastDotIdx && lastCommaIdx >= 0) {
+    // Comma is decimal separator (European format like "60 000,00")
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (lastDotIdx > lastCommaIdx && lastDotIdx >= 0) {
+    // Dot is decimal separator (US format like "60,000.00")
+    cleaned = cleaned.replace(/,/g, '');
+  }
+  // If neither comma nor dot, leave as is
+
+  const n = parseFloat(cleaned);
+  return !isNaN(n) ? n : 0;
+}
+
 // Try to find a numeric value in a row (for amount detection)
 function findAmount(row: any): number {
   const values = Object.values(row);
@@ -844,9 +885,8 @@ function findAmount(row: any): number {
   const nums: number[] = [];
   for (const v of values) {
     if (v === null || v === undefined || v === '') continue;
-    const s = String(v).replace(/\s/g, '').replace(',', '.');
-    const n = parseFloat(s);
-    if (!isNaN(n) && n > 0 && n < 1e12) {
+    const n = parseAmount(String(v));
+    if (n > 0 && n < 1e12) {
       nums.push(n);
     }
   }
@@ -927,19 +967,24 @@ app.post("/api/analyze-table", async (req, res) => {
 ${sampleRows}
 
 Определи, какие колонки содержат:
-- date_column: название колонки с датой
-- amount_column: название колонки с суммой (или несколько: income_column и expense_column если раздельные)
-- description_column: название колонки с описанием/назначением платежа
-- counterparty_column: название колонки с контрагентом (если есть)
-- income_column: колонка с суммой дохода/прихода (если есть отдельная)
-- expense_column: колонка с суммой расхода (если есть отдельная)
+- date_column: колонка с датой операции (Дата, Дата операции, Дата документа и т.д.)
+- amount_column: колонка с суммой (если одна общая)
+- description_column: колонка с описанием/назначением платежа (Назначение, Описание, Примечание и т.д.)
+- counterparty_column: колонка с контрагентом (если есть)
+- income_column: колонка со суммой ДОХОДА/ПРИХОДА (Доход, Зачисление, Приход, Поступление и т.д.) - ТОЛЬКО если есть отдельная!
+- expense_column: колонка со суммой РАСХОДА (Расход, Списание, Трата, Платеж и т.д.) - ТОЛЬКО если есть отдельная!
 
-ВАЖНО: Первая строка данных может быть заголовком! Если значения выглядят как названия колонок ("Дата", "Сумма", "Контрагент") - укажи header_row: true
+ВАЖНО: Первая строка может быть заголовком! Если это названия колонок ("Дата", "Сумма", "Контрагент") - укажи header_row: true
+
+ВАЖНО 2: Не путай:
+- "Списание" = расход (expense)
+- "Зачисление" = доход (income)
+- Если одна колонка "Сумма" = это amount_column (тип определим по другим признакам)
 
 Ответь ТОЛЬКО JSON:
 {
   "header_row": true/false,
-  "date_column": "имя колонки",
+  "date_column": "имя колонки или null",
   "amount_column": "имя колонки или null",
   "income_column": "имя колонки или null",
   "expense_column": "имя колонки или null",
@@ -1003,16 +1048,16 @@ ${sampleRows}
       const creditCol = Object.keys(row).find(k => k.toLowerCase().includes('зачисле'));
 
       if (writeoffCol && row[writeoffCol]) {
-        const writeoffAmt = parseFloat(String(row[writeoffCol]).replace(/\s/g, '').replace(',', '.'));
-        if (!isNaN(writeoffAmt) && writeoffAmt > 0) {
+        const writeoffAmt = parseAmount(String(row[writeoffCol]));
+        if (writeoffAmt > 0) {
           amount = writeoffAmt;
           detectedType = 'expense';
         }
       }
 
       if (creditCol && row[creditCol]) {
-        const creditAmt = parseFloat(String(row[creditCol]).replace(/\s/g, '').replace(',', '.'));
-        if (!isNaN(creditAmt) && creditAmt > 0) {
+        const creditAmt = parseAmount(String(row[creditCol]));
+        if (creditAmt > 0) {
           // If we already have an expense, create two entries
           if (amount > 0 && detectedType === 'expense') {
             const expCat = categorizeByKeywords(allText);
@@ -1034,15 +1079,15 @@ ${sampleRows}
       if (amount === 0 && columnMapping) {
         // If we have separate income/expense columns
         if (columnMapping.income_column && row[columnMapping.income_column]) {
-          const incAmt = parseFloat(String(row[columnMapping.income_column]).replace(/\s/g, '').replace(',', '.'));
-          if (!isNaN(incAmt) && incAmt > 0) {
+          const incAmt = parseAmount(String(row[columnMapping.income_column]));
+          if (incAmt > 0) {
             amount = incAmt;
             detectedType = 'income';
           }
         }
         if (columnMapping.expense_column && row[columnMapping.expense_column]) {
-          const expAmt = parseFloat(String(row[columnMapping.expense_column]).replace(/\s/g, '').replace(',', '.'));
-          if (!isNaN(expAmt) && expAmt > 0) {
+          const expAmt = parseAmount(String(row[columnMapping.expense_column]));
+          if (expAmt > 0) {
             // If both income and expense exist in the same row, create two entries
             if (amount > 0 && detectedType === 'income') {
               // We already have an income entry, add expense separately
@@ -1063,8 +1108,8 @@ ${sampleRows}
         }
         // Single amount column
         if (amount === 0 && columnMapping.amount_column && row[columnMapping.amount_column]) {
-          const amt = parseFloat(String(row[columnMapping.amount_column]).replace(/\s/g, '').replace(',', '.'));
-          if (!isNaN(amt) && amt !== 0) {
+          const amt = parseAmount(String(row[columnMapping.amount_column]));
+          if (amt !== 0) {
             amount = Math.abs(amt);
             // Negative amount = expense, positive = could be either
             if (amt < 0) detectedType = 'expense';
@@ -1077,9 +1122,22 @@ ${sampleRows}
         }
       }
 
-      // Fallback: find amount from any column
+      // Fallback: find amount from any column AND detect type from column name
       if (amount === 0) {
-        amount = findAmount(row);
+        // Try to find a column with numeric value and get its type from name
+        for (const [colName, colValue] of Object.entries(row)) {
+          if (colValue === null || colValue === undefined || colValue === '') continue;
+          const colAmt = parseAmount(String(colValue));
+          if (colAmt > 0 && colAmt < 1e12) {
+            amount = colAmt;
+            // Try to detect type from column name
+            const typeFromName = detectTypeFromColumnName(colName);
+            if (typeFromName) {
+              detectedType = typeFromName;
+            }
+            break;
+          }
+        }
       }
 
       // Skip rows with no amount
