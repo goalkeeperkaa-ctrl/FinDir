@@ -6,7 +6,7 @@ import {
 import {
   LayoutDashboard, PieChart as PieChartIcon, Wallet, Settings,
   MessageSquare, Bell, Search, Plus, ArrowUpRight, ArrowDownRight,
-  Activity, TrendingUp, Users, DollarSign, Filter, X, Coffee, Car, Zap, Upload
+  Activity, TrendingUp, Users, DollarSign, Filter, X, Coffee, Car, Zap, Upload, Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatCurrency } from '@/lib/utils';
@@ -453,6 +453,7 @@ function Transactions() {
   const [showFilters, setShowFilters] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTransactions();
@@ -462,6 +463,22 @@ function Transactions() {
     fetch('/api/transactions')
       .then(res => res.json())
       .then(setTransactions);
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+    if (!confirm('Вы уверены, что хотите удалить эту транзакцию?')) {
+      return;
+    }
+    setDeletingId(id);
+    fetch(`/api/transactions/${id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setTransactions(transactions.filter(t => t.id !== id));
+        }
+      })
+      .catch(err => console.error('Delete error:', err))
+      .finally(() => setDeletingId(null));
   };
 
   const categories = Array.from(new Set(transactions.map(t => t.category_name)));
@@ -613,6 +630,7 @@ function Transactions() {
               <th className="px-6 py-4 font-normal uppercase tracking-wider text-xs">Категория</th>
               <th className="px-6 py-4 font-normal uppercase tracking-wider text-xs">Статус</th>
               <th className="px-6 py-4 text-right font-normal uppercase tracking-wider text-xs">Сумма</th>
+              <th className="px-6 py-4 text-center font-normal uppercase tracking-wider text-xs">Действия</th>
             </tr>
           </thead>
           <tbody>
@@ -626,13 +644,13 @@ function Transactions() {
                   </span>
                 </td>
                 <td className="px-6 py-4 bg-white/[0.02] group-hover:bg-white/5 transition-colors border-y border-transparent group-hover:border-white/5">
-                  <span className={cn("text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap border", 
+                  <span className={cn("text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full whitespace-nowrap border",
                     tx.status === 'cleared' ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-amber-400 bg-amber-500/10 border-amber-500/20"
                   )}>
                     {tx.status === 'cleared' ? 'Проведено' : 'В обработке'}
                   </span>
                 </td>
-                <td className={cn("px-6 py-4 text-right font-mono font-medium whitespace-nowrap bg-white/[0.02] last:rounded-r-2xl group-hover:bg-white/5 transition-colors border-y border-r border-transparent group-hover:border-white/5", 
+                <td className={cn("px-6 py-4 text-right font-mono font-medium whitespace-nowrap bg-white/[0.02] group-hover:bg-white/5 transition-colors border-y border-transparent group-hover:border-white/5",
                   tx.category_type === 'income' ? "text-emerald-400" : "text-zinc-300"
                 )}>
                   <div className="flex items-center justify-end gap-2">
@@ -640,11 +658,21 @@ function Transactions() {
                     {formatCurrency(tx.amount)}
                   </div>
                 </td>
+                <td className="px-6 py-4 text-center bg-white/[0.02] last:rounded-r-2xl group-hover:bg-white/5 transition-colors border-y border-r border-transparent group-hover:border-white/5">
+                  <button
+                    onClick={() => handleDeleteTransaction(tx.id)}
+                    disabled={deletingId === tx.id}
+                    className="p-2 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Удалить транзакцию"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
               </tr>
             ))}
             {filteredTransactions.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-24 text-center text-zinc-500">
+                <td colSpan={6} className="px-6 py-24 text-center text-zinc-500">
                   <div className="flex flex-col items-center gap-4">
                     <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center">
                       <Search className="w-6 h-6 text-zinc-600" />

@@ -176,6 +176,30 @@ async function addTransaction(date: string, amount: number, description: string,
   return tx;
 }
 
+async function deleteTransaction(id: string) {
+  try {
+    await ensureDbInitialized();
+
+    if (useDatabase && dbManager) {
+      await dbManager.execute('DELETE FROM transactions WHERE id = $1', [id]);
+      console.log(`🗑️ Deleted transaction ${id} from database`);
+      return { success: true, id };
+    }
+  } catch (e) {
+    console.error('Database delete failed:', e);
+  }
+
+  // Fallback to memory
+  const index = fallbackTransactions.findIndex(t => t.id === id);
+  if (index !== -1) {
+    fallbackTransactions.splice(index, 1);
+    console.log(`🗑️ Deleted transaction ${id} from memory`);
+    return { success: true, id };
+  }
+
+  return { success: false, error: 'Transaction not found' };
+}
+
 async function getCategories() {
   try {
     await ensureDbInitialized();
@@ -335,6 +359,22 @@ app.post("/api/transactions", async (req, res) => {
     res.json(newTx);
   } catch (error: any) {
     console.error('Add transaction error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete transaction
+app.delete("/api/transactions/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await deleteTransaction(id);
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(404).json(result);
+    }
+  } catch (error: any) {
+    console.error('Delete transaction error:', error);
     res.status(500).json({ error: error.message });
   }
 });
