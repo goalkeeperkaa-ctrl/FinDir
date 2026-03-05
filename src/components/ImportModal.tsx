@@ -154,6 +154,36 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
     }
   };
 
+  const smartAnalyzeTable = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Send raw table data to AI for analysis
+      const res = await fetch('/api/analyze-table', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tableData: rawData })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setError(`Ошибка анализа: ${err.error || 'Неизвестная ошибка'}`);
+        setIsLoading(false);
+        return;
+      }
+
+      const result = await res.json();
+      setPreview(result.analyzed.slice(0, 5));
+      setShowColumnMapping(false);
+      submitImport(result.analyzed);
+    } catch (e: any) {
+      console.error('Smart analysis error:', e);
+      setError(`Ошибка при анализе таблицы: ${e.message || String(e)}`);
+      setIsLoading(false);
+    }
+  };
+
   const submitImport = async (transactions: any[]) => {
     try {
       setIsLoading(true);
@@ -282,6 +312,14 @@ export function ImportModal({ onClose, onSuccess }: ImportModalProps) {
                       ))}
                     </select>
                   </div>
+
+                  <button
+                    onClick={smartAnalyzeTable}
+                    disabled={isLoading}
+                    className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-lg text-sm font-bold hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 transition-all"
+                  >
+                    ✨ Умный анализ таблицы
+                  </button>
 
                   <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mt-4">
                     <label className="flex items-center gap-3 cursor-pointer">

@@ -804,6 +804,126 @@ app.post("/api/categorize-ai", async (req, res) => {
   }
 });
 
+// Intelligent table analysis - AI analyzes entire table and categorizes automatically
+app.post("/api/analyze-table", async (req, res) => {
+  try {
+    const { tableData } = req.body;
+
+    if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
+      return res.status(400).json({ error: 'Table data is required' });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'OpenAI API key not configured' });
+    }
+
+    const categories = await getCategories();
+    const categoryList = categories.map((c: any) => `- ${c.name} (${c.type})`).join('\n');
+
+    // Prepare table data for AI analysis
+    const tableDescription = tableData.slice(0, 20).map((row: any, idx: number) => {
+      return Object.entries(row)
+        .map(([key, val]) => `${key}: ${val}`)
+        .join(' | ');
+    }).join('\n');
+
+    const prompt = `Ты финансовый аналитик. Проанализируй таблицу финансовых данных и распредели каждую строку по категориям.
+
+ТАБЛИЦА ДАННЫХ:
+${tableDescription}
+
+ДОСТУПНЫЕ КАТЕГОРИИ И ИХ ТИПЫ:
+${categoryList}
+
+ПРАВИЛА КАТЕГОРИЗАЦИИ:
+- Доходы (income): Выручка от клиентов, продажи, платежи за услуги
+- Расходы (expense): Зарплата, софт, реклама, маркетинг, аренда, налоги, комиссии
+
+ВАЖНЫЕ КЛЮЧЕВЫЕ СЛОВА:
+Зарплата/ФОТ/Заработная плата → Фонд оплаты труда (expense)
+Софт/SaaS/подписка/Slack/GitHub → Сервисы и ПО (expense)
+Реклама/Яндекс.Директ/Facebook → Маркетинг (expense)
+Аренда/Оренда → Аренда офиса (expense)
+Налог/НДС/1С → Налоги (expense)
+Платеж от клиента/Счет/Доход → Выручка (income)
+
+Ответь в формате JSON массив объектов:
+[
+  {
+    "row_index": номер строки,
+    "description": описание из таблицы или объединенные поля,
+    "amount": сумма,
+    "date": дата,
+    "type": "income" или "expense",
+    "category": "название категории из списка",
+    "confidence": число от 0 до 1
+  }
+]
+
+Анализируй каждую строку внимательно!`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 4000
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      console.error('OpenAI error:', data.error);
+      return res.status(500).json({ error: data.error.message });
+    }
+
+    const aiResponse = data.choices?.[0]?.message?.content || '[]';
+
+    // Extract JSON from markdown code blocks if present
+    let jsonStr = aiResponse;
+    const jsonMatch = aiResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+
+    const analyzed = JSON.parse(jsonStr);
+
+    // Validate and normalize the results
+    const normalized = analyzed.map((item: any) => {
+      const cat = categories.find((c: any) => c.name === item.category) || categories[0];
+      return {
+        date: item.date || new Date().toISOString().split('T')[0],
+        amount: parseFloat(String(item.amount)) || 0,
+        description: item.description || 'Импортированная транзакция',
+        category_name: cat.name,
+        type: cat.type,
+        confidence: item.confidence || 0.7
+      };
+    }).filter((t: any) => t.amount > 0);
+
+    res.json({
+      analyzed: normalized,
+      count: normalized.length,
+      summary: {
+        total_income: normalized.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + t.amount, 0),
+        total_expenses: normalized.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + t.amount, 0)
+      }
+    });
+  } catch (error: any) {
+    console.error('Table analysis error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Chat with OpenAI
 app.post("/api/chat", async (req, res) => {
   try {
